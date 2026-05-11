@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import com.icers.ford.model.enums.Role;
+
 import java.time.LocalDateTime;
 
 @Entity
@@ -55,9 +57,5 @@ public class Usuario {
 
     public boolean isAtivo() {
         return "S".equals(this.ativo);
-    }
-
-    public enum Role {
-        ANALYST, ADMIN
     }
 }

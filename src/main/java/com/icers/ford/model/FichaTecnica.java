@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import com.icers.ford.model.enums.ConfidenceLevel;
+
 import java.time.LocalDateTime;
 
 @Entity
@@ -80,7 +82,4 @@ public class FichaTecnica {
         this.atualizadoEm = LocalDateTime.now();
     }
 
-    public enum ConfidenceLevel {
-        ALTA, MEDIA, PARCIAL, BAIXA
-    }
 }
