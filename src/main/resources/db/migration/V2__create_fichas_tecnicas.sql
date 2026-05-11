@@ -1,0 +1,41 @@
+-- V2: Tabela de Fichas Técnicas
+
+CREATE SEQUENCE seq_ficha_id
+    START WITH 1
+    INCREMENT BY 1
+    NOCACHE
+    NOCYCLE;
+
+CREATE TABLE sr_fichas_tecnicas (
+    id                  NUMBER DEFAULT seq_ficha_id.NEXTVAL NOT NULL,
+    marca               VARCHAR2(50)    NOT NULL,
+    modelo              VARCHAR2(80)    NOT NULL,
+    versao              VARCHAR2(80)    NOT NULL,
+    campos_json         CLOB            NOT NULL,
+    confidence_geral    VARCHAR2(20)    DEFAULT 'PARCIAL' NOT NULL,
+    fonte_url           VARCHAR2(500),
+    verificado_em       TIMESTAMP       DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    criado_por          NUMBER          NOT NULL,
+    criado_em           TIMESTAMP       DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    atualizado_em       TIMESTAMP       DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT pk_ficha PRIMARY KEY (id),
+    CONSTRAINT fk_ficha_usuario FOREIGN KEY (criado_por)
+        REFERENCES sr_usuarios(id),
+    CONSTRAINT ck_ficha_confidence CHECK (
+        confidence_geral IN ('ALTA', 'MEDIA', 'PARCIAL', 'BAIXA')
+    ),
+    CONSTRAINT chk_campos_json CHECK (campos_json IS JSON)
+);
+
+CREATE INDEX idx_ficha_marca   ON sr_fichas_tecnicas(marca);
+CREATE INDEX idx_ficha_modelo  ON sr_fichas_tecnicas(modelo);
+CREATE INDEX idx_ficha_versao  ON sr_fichas_tecnicas(versao);
+CREATE INDEX idx_ficha_criado  ON sr_fichas_tecnicas(criado_em);
+
+-- Índice composto para a busca mais comum (GET por veículo)
+CREATE INDEX idx_ficha_veiculo ON sr_fichas_tecnicas(marca, modelo, versao);
+
+COMMENT ON TABLE  sr_fichas_tecnicas                IS 'Fichas técnicas de veículos extraídas via LLM';
+COMMENT ON COLUMN sr_fichas_tecnicas.campos_json    IS 'JSON com array de CampoSpec: [{campo, valor, confianca, fonte, verificadoEm}]';
+COMMENT ON COLUMN sr_fichas_tecnicas.confidence_geral IS 'Nível geral de confiança da ficha: ALTA/MEDIA/PARCIAL/BAIXA';
+COMMENT ON COLUMN sr_fichas_tecnicas.criado_por     IS 'FK para sr_usuarios — quem realizou a consulta';

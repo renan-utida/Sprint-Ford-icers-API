@@ -1,0 +1,34 @@
+-- V4: Tabela de Logs de Auditoria
+-- IMPORTANTE: nunca armazenar dados sensíveis aqui
+
+CREATE SEQUENCE seq_audit_id
+    START WITH 1
+    INCREMENT BY 1
+    NOCACHE
+    NOCYCLE;
+
+CREATE TABLE sr_audit_logs (
+    id              NUMBER DEFAULT seq_audit_id.NEXTVAL NOT NULL,
+    usuario_hash    VARCHAR2(64),
+    endpoint        VARCHAR2(200)   NOT NULL,
+    metodo_http     VARCHAR2(10)    NOT NULL,
+    status_resposta NUMBER(3)       NOT NULL,
+    ip_origem       VARCHAR2(45),
+    acao            VARCHAR2(100)   NOT NULL,
+    detalhes        VARCHAR2(1000),
+    criado_em       TIMESTAMP       DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT pk_audit PRIMARY KEY (id),
+    CONSTRAINT ck_audit_metodo CHECK (
+       metodo_http IN ('GET', 'POST', 'PUT', 'PATCH', 'DELETE')
+    )
+);
+
+CREATE INDEX idx_audit_usuario  ON sr_audit_logs(usuario_hash);
+CREATE INDEX idx_audit_criado   ON sr_audit_logs(criado_em);
+CREATE INDEX idx_audit_ip       ON sr_audit_logs(ip_origem);
+CREATE INDEX idx_audit_status   ON sr_audit_logs(status_resposta);
+
+COMMENT ON TABLE  sr_audit_logs               IS 'Trilha de auditoria — sem dados pessoais ou sensíveis';
+COMMENT ON COLUMN sr_audit_logs.usuario_hash  IS 'Hash SHA-256 do user_id — rastreável mas não reversível para email';
+COMMENT ON COLUMN sr_audit_logs.ip_origem     IS 'IP de origem da requisição (IPv4 ou IPv6)';
+COMMENT ON COLUMN sr_audit_logs.detalhes      IS 'Contexto da ação — nunca contém token, senha ou resposta completa';

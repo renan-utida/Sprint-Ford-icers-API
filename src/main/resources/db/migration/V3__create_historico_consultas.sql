@@ -1,0 +1,32 @@
+-- V3: Tabela de Histórico de Consultas
+
+CREATE SEQUENCE seq_historico_id
+    START WITH 1
+    INCREMENT BY 1
+    NOCACHE
+    NOCYCLE;
+
+CREATE TABLE sr_historico_consultas (
+    id                      NUMBER DEFAULT seq_historico_id.NEXTVAL NOT NULL,
+    usuario_id              NUMBER          NOT NULL,
+    marca                   VARCHAR2(50)    NOT NULL,
+    modelo                  VARCHAR2(80)    NOT NULL,
+    versao                  VARCHAR2(80)    NOT NULL,
+    atributos_solicitados   CLOB,
+    cache_hit               VARCHAR2(1)     DEFAULT 'N' NOT NULL,
+    tempo_resposta_ms       NUMBER(10),
+    criado_em               TIMESTAMP       DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT pk_historico PRIMARY KEY (id),
+    CONSTRAINT fk_historico_usuario FOREIGN KEY (usuario_id)
+        REFERENCES sr_usuarios(id),
+    CONSTRAINT ck_historico_cache CHECK (cache_hit IN ('S', 'N'))
+);
+
+CREATE INDEX idx_historico_usuario   ON sr_historico_consultas(usuario_id);
+CREATE INDEX idx_historico_criado    ON sr_historico_consultas(criado_em);
+CREATE INDEX idx_historico_veiculo   ON sr_historico_consultas(marca, modelo, versao);
+
+COMMENT ON TABLE  sr_historico_consultas                    IS 'Log de todas as consultas realizadas na plataforma';
+COMMENT ON COLUMN sr_historico_consultas.atributos_solicitados IS 'JSON com lista de atributos solicitados pelo usuário';
+COMMENT ON COLUMN sr_historico_consultas.cache_hit          IS 'S = retornou do banco | N = chamou o LLM';
+COMMENT ON COLUMN sr_historico_consultas.tempo_resposta_ms  IS 'Tempo total de processamento em milissegundos';
