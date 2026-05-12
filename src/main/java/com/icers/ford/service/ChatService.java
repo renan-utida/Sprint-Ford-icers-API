@@ -47,16 +47,14 @@ public class ChatService {
             SpecQueryRequest request = new SpecQueryRequest(
                     intencao.marca(),
                     intencao.modelo(),
-                    intencao.versao() != null ? intencao.versao() : "padrão",
+                    intencao.versao() != null ? intencao.versao() : "base",
                     intencao.atributos().isEmpty()
                             ? ATRIBUTOS_PADRAO
                             : intencao.atributos()
             );
 
             SpecResponse ficha = specService.query(request, usuario);
-
-            String resposta = montarRespostaConversacional(ficha, intencao);
-
+            String resposta = montarRespostaConversacional(ficha);
             return ChatResponse.comFicha(resposta, ficha);
 
         } catch (Exception e) {
@@ -91,14 +89,13 @@ public class ChatService {
                 "toyota", "ford", "chevrolet", "volkswagen", "fiat",
                 "honda", "hyundai", "jeep", "nissan", "mitsubishi",
                 "ram", "renault", "peugeot", "citroen", "mercedes",
-                "bmw", "audi", "volvo", "land rover", "caoa chery"
+                "bmw", "audi", "volvo", "land rover", "caoa chery",
+                "kia", "subaru", "suzuki"
         };
 
         for (String marca : marcas) {
             if (msg.contains(marca)) {
-                // Capitaliza a primeira letra
-                return marca.substring(0, 1).toUpperCase()
-                        + marca.substring(1);
+                return marca.substring(0, 1).toUpperCase() + marca.substring(1);
             }
         }
         return null;
@@ -109,16 +106,30 @@ public class ChatService {
 
         // Modelos mais consultados por marca
         String[][] modelosPorMarca = {
-                {"toyota", "hilux", "corolla", "yaris", "sw4", "rav4"},
-                {"ford", "ranger", "territory", "bronco", "maverick"},
-                {"chevrolet", "s10", "tracker", "onix", "cruze", "trailblazer"},
-                {"volkswagen", "amarok", "polo", "virtus", "t-cross", "taos"},
-                {"fiat", "toro", "strada", "fastback", "pulse", "cronos"},
-                {"hyundai", "creta", "tucson", "hb20", "santa fe"},
-                {"jeep", "compass", "commander", "renegade", "wrangler"},
-                {"nissan", "frontier", "kicks", "sentra"},
-                {"mitsubishi", "l200", "outlander", "eclipse cross"},
-                {"ram", "rampage", "1500"}
+                {"toyota", "hilux", "corolla", "yaris", "sw4", "rav4",
+                        "land cruiser", "prius"},
+                {"ford", "ranger", "territory", "bronco", "maverick",
+                        "edge", "expedition"},
+                {"chevrolet", "s10", "tracker", "onix", "cruze",
+                        "trailblazer", "equinox", "blazer"},
+                {"volkswagen", "amarok", "polo", "virtus", "t-cross",
+                        "taos", "tiguan", "nivus"},
+                {"fiat", "toro", "strada", "fastback", "pulse",
+                        "cronos", "doblo", "mobi"},
+                {"hyundai", "creta", "tucson", "hb20", "santa fe",
+                        "ioniq", "kona"},
+                {"jeep", "compass", "commander", "renegade", "wrangler",
+                        "gladiator"},
+                {"nissan", "frontier", "kicks", "sentra", "versa"},
+                {"mitsubishi", "l200", "outlander", "eclipse cross",
+                        "pajero"},
+                {"ram", "rampage", "1500", "2500"},
+                {"honda", "civic", "hrv", "crv", "wrv", "city"},
+                {"renault", "duster", "kwid", "captur", "oroch"},
+                {"kia", "sportage", "carnival", "cerato", "stinger"},
+                {"bmw", "x1", "x3", "x5", "320i", "m3"},
+                {"mercedes", "gla", "glc", "gle", "c200", "a200"},
+                {"audi", "q3", "q5", "a3", "a4", "q8"}
         };
 
         String marcaLower = marca.toLowerCase();
@@ -140,8 +151,12 @@ public class ChatService {
         String[] versoes = {
                 "raptor", "gr-sport", "gr sport", "high country",
                 "wildtrak", "limited", "platinum", "adventure",
-                "sr", "srx", "srv", "storm", "midnight",
-                "black", "tungsten", "titanium", "sport"
+                "srx", "srv", "storm", "midnight", "black",
+                "tungsten", "titanium", "sport", "sr",
+                "trailhawk", "overland", "rubicon", "sahara",
+                "r-line", "highline", "comfortline", "trendline",
+                "launch edition", "premier", "ltz", "ltz+",
+                "lobo", "facelift"
         };
 
         for (String versao : versoes) {
@@ -167,36 +182,63 @@ public class ChatService {
         // Mapa de palavras-chave para atributos padronizados
         String[][] mapa = {
                 {"motor", "motor"},
+                {"motorização", "motor"},
                 {"potência", "potencia"},
                 {"potencia", "potencia"},
+                {"cv", "potencia"},
+                {"cavalos", "potencia"},
+                {"hp", "potencia"},
                 {"torque", "torque"},
+                {"nm", "torque"},
                 {"câmbio", "transmissao"},
+                {"cambio", "transmissao"},
                 {"transmissão", "transmissao"},
+                {"transmissao", "transmissao"},
                 {"tração", "tracao"},
+                {"tracao", "tracao"},
+                {"4x4", "tracao"},
+                {"4wd", "tracao"},
+                {"awd", "tracao"},
                 {"consumo", "consumo"},
+                {"km/l", "consumo"},
                 {"preço", "preco"},
                 {"preco", "preco"},
                 {"valor", "preco"},
+                {"custo", "preco"},
                 {"suspensão", "suspensao"},
                 {"suspensao", "suspensao"},
+                {"amortecedor", "suspensao"},
                 {"freio", "freios"},
+                {"abs", "freios"},
                 {"dimensão", "dimensoes"},
                 {"dimensoes", "dimensoes"},
                 {"comprimento", "dimensoes"},
                 {"largura", "dimensoes"},
                 {"altura", "dimensoes"},
+                {"tamanho", "dimensoes"},
                 {"porta-malas", "porta-malas"},
                 {"bagageiro", "porta-malas"},
                 {"capacidade", "capacidade_carga"},
+                {"carga", "capacidade_carga"},
                 {"reboque", "capacidade_reboque"},
                 {"aceleração", "aceleracao"},
+                {"aceleracao", "aceleracao"},
+                {"0-100", "aceleracao"},
                 {"velocidade", "velocidade_maxima"},
                 {"segurança", "seguranca"},
                 {"airbag", "seguranca"},
+                {"ncap", "seguranca"},
                 {"garantia", "garantia"},
                 {"peso", "peso"},
                 {"rodas", "rodas"},
-                {"pneu", "pneus"}
+                {"aro", "rodas"},
+                {"pneu", "pneus"},
+                {"farol", "iluminacao"},
+                {"led", "iluminacao"},
+                {"tela", "multimidia"},
+                {"multimídia", "multimidia"},
+                {"carplay", "multimidia"},
+                {"android auto", "multimidia"}
         };
 
         for (String[] par : mapa) {
@@ -213,8 +255,7 @@ public class ChatService {
 
     // MONTAGEM DA RESPOSTA CONVERSACIONAL
 
-    private String montarRespostaConversacional(SpecResponse ficha,
-                                                IntencaoConsulta intencao) {
+    private String montarRespostaConversacional(SpecResponse ficha) {
         StringBuilder sb = new StringBuilder();
 
         sb.append(String.format(
