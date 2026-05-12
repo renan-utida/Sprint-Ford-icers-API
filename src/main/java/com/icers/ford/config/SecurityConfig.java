@@ -78,7 +78,26 @@ public class SecurityConfig {
 
                 // Filtro JWT antes do filtro padrão do Spring
                 .addFilterBefore(jwtAuthFilter,
-                        UsernamePasswordAuthenticationFilter.class);
+                        UsernamePasswordAuthenticationFilter.class)
+
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((request, response, authException) -> {
+                            response.setStatus(401);
+                            response.setContentType("application/json");
+                            response.getWriter().write(
+                                    "{\"codigo_erro\":\"UNAUTHORIZED\"," +
+                                            "\"mensagem\":\"Token ausente ou inválido.\"}"
+                            );
+                        })
+                        .accessDeniedHandler((request, response, accessDeniedException) -> {
+                            response.setStatus(403);
+                            response.setContentType("application/json");
+                            response.getWriter().write(
+                                    "{\"codigo_erro\":\"FORBIDDEN\"," +
+                                            "\"mensagem\":\"Você não tem permissão para acessar este recurso.\"}"
+                            );
+                        })
+                );
 
         return http.build();
     }
