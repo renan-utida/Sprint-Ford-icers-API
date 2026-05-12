@@ -3,27 +3,32 @@ package com.icers.ford.client;
 import java.util.List;
 
 /**
- * Representa a requisição enviada para a API do LLM.
- * Mapeado para o formato da API da Anthropic (Claude).
+ * Representa a requisição enviada para a API do Google Gemini.
  */
 public record LlmRequest(
-        String model,
-        int max_tokens,
-        List<Message> messages
+        List<Content> contents,
+        GenerationConfig generationConfig
 ) {
-    public record Message(
-            String role,
-            String content
+    public record Content(
+            List<Part> parts
+    ) {}
+
+    public record Part(
+            String text
+    ) {}
+
+    public record GenerationConfig(
+            int maxOutputTokens,
+            double temperature
     ) {}
 
     /**
      * Factory method — monta a requisição com o prompt pronto
      */
-    public static LlmRequest of(String model, String prompt) {
+    public static LlmRequest of(String prompt) {
         return new LlmRequest(
-                model,
-                2000,
-                List.of(new Message("user", prompt))
+                List.of(new Content(List.of(new Part(prompt)))),
+                new GenerationConfig(2000, 0.1)
         );
     }
 }

@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
@@ -40,67 +41,71 @@ public class LlmClient {
     }
 
     /**
-     * Consulta o LLM para extrair especificações técnicas de um veículo.
-     *
-     * @param marca      marca do veículo (já validada e sanitizada)
-     * @param modelo     modelo do veículo (já validado e sanitizado)
-     * @param versao     versão do veículo (já validada e sanitizada)
-     * @param atributos  lista de atributos solicitados (já validada)
-     * @return lista de CampoSpec com todos os atributos preenchidos ou marcados como NAO_ENCONTRADO
+     * Consulta o Gemini para extrair especificações técnicas de um veículo.
+     * URL final: {apiUrl}/{model}:generateContent?key={apiKey}
      */
     public List<CampoSpec> consultarEspecificacoes(String marca, String modelo,
                                                    String versao,
                                                    List<String> atributos) {
         String prompt = construirPrompt(marca, modelo, versao, atributos);
+        String url = apiUrl + "/" + model + ":generateContent?key=" + apiKey;
 
-        log.info("Consultando LLM para: {} {} {}", marca, modelo, versao);
-        log.debug("Atributos solicitados: {}", atributos);
+        log.info("Consultando Gemini para: {} {} {}", marca, modelo, versao);
 
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.set("x-api-key", apiKey);
-            headers.set("anthropic-version", "2023-06-01");
 
-            LlmRequest request = LlmRequest.of(model, prompt);
+            LlmRequest request = LlmRequest.of(prompt);
             HttpEntity<LlmRequest> entity = new HttpEntity<>(request, headers);
 
             ResponseEntity<LlmResponse> response = restTemplate.exchange(
-                    apiUrl,
+                    url,
                     HttpMethod.POST,
                     entity,
                     LlmResponse.class
             );
 
             if (response.getBody() == null) {
-                throw new LlmUnavailableException("Resposta vazia do LLM");
+                throw new LlmUnavailableException("Resposta vazia do Gemini");
             }
 
             String textoResposta = response.getBody().extractText();
             if (textoResposta == null || textoResposta.isBlank()) {
-                throw new LlmUnavailableException("Conteúdo vazio na resposta do LLM");
+                throw new LlmUnavailableException(
+                        "Conteúdo vazio na resposta do Gemini"
+                );
             }
 
-            log.debug("Tokens utilizados — input: {} | output: {}",
-                    response.getBody().usage() != null
-                            ? response.getBody().usage().input_tokens() : "?",
-                    response.getBody().usage() != null
-                            ? response.getBody().usage().output_tokens() : "?"
-            );
+            if (response.getBody().usageMetadata() != null) {
+                log.debug("Tokens utilizados — total: {}",
+                        response.getBody().usageMetadata().totalTokenCount());
+            }
 
             return parsearResposta(textoResposta, atributos);
 
+        } catch (HttpClientErrorException e) {
+            // 429 = rate limit atingido — gratuito esgotado por hoje
+            if (e.getStatusCode().value() == 429) {
+                log.warn("Rate limit do Gemini atingido");
+                throw new LlmUnavailableException(
+                        "Limite de consultas atingido. Tente novamente mais tarde.", e
+                );
+            }
+            log.error("Erro HTTP ao consultar Gemini: {} — {}",
+                    e.getStatusCode(), e.getMessage());
+            throw new LlmUnavailableException(
+                    "Erro ao consultar serviço externo", e
+            );
         } catch (ResourceAccessException e) {
-            // Timeout ou conexão recusada
-            log.error("Timeout ao consultar LLM para {} {} {}: {}",
-                    marca, modelo, versao, e.getMessage());
+            log.error("Timeout ao consultar Gemini: {}", e.getMessage());
             throw new LlmUnavailableException(
                     "Timeout ao consultar serviço externo", e
             );
         } catch (LlmUnavailableException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Erro inesperado ao consultar LLM: {}", e.getMessage());
+            log.error("Erro inesperado ao consultar Gemini: {}", e.getMessage());
             throw new LlmUnavailableException(
                     "Erro ao processar resposta do serviço externo", e
             );
@@ -116,7 +121,6 @@ public class LlmClient {
      */
     private String construirPrompt(String marca, String modelo,
                                    String versao, List<String> atributos) {
-
         String listaAtributos = String.join(", ", atributos);
         String dataHoje = LocalDate.now().toString();
 
@@ -167,7 +171,7 @@ public class LlmClient {
     // PARSE DA RESPOSTA
 
     /**
-     * Parseia o JSON retornado pelo LLM para lista de CampoSpec.
+     * Parseia o JSON retornado pelo Gemini para lista de CampoSpec.
      * Se o parse falhar, retorna todos os campos como NAO_ENCONTRADO
      * em vez de lançar exceção — garante resposta sempre no formato correto.
      */
@@ -177,7 +181,6 @@ public class LlmClient {
         try {
             // Remove possível markdown code block se o modelo ignorar a instrução
             String jsonLimpo = limparJson(textoJson);
-
             Map<String, Object> resposta =
                     objectMapper.readValue(jsonLimpo, Map.class);
 
@@ -185,7 +188,7 @@ public class LlmClient {
                     (List<Map<String, Object>>) resposta.get("campos");
 
             if (camposJson == null || camposJson.isEmpty()) {
-                log.warn("LLM retornou JSON sem campos — usando NAO_ENCONTRADO para todos");
+                log.warn("Gemini retornou JSON sem campos");
                 return atributosEsperados.stream()
                         .map(CampoSpec::naoEncontrado)
                         .toList();
@@ -214,14 +217,12 @@ public class LlmClient {
                 }
             }
 
-            // Garante que todos os atributos solicitados estão no response
-            // mesmo que o LLM tenha omitido algum
+            // Garante todos os atributos solicitados no response
             for (String atributo : atributosEsperados) {
                 boolean presente = campos.stream()
                         .anyMatch(c -> atributo.equalsIgnoreCase(c.campo()));
                 if (!presente) {
-                    log.warn("LLM omitiu o atributo '{}' — adicionando como NAO_ENCONTRADO",
-                            atributo);
+                    log.warn("Gemini omitiu '{}' — NAO_ENCONTRADO", atributo);
                     campos.add(CampoSpec.naoEncontrado(atributo));
                 }
             }
@@ -229,7 +230,7 @@ public class LlmClient {
             return campos;
 
         } catch (Exception e) {
-            log.error("Falha ao parsear resposta do LLM: {}", e.getMessage());
+            log.error("Falha ao parsear resposta do Gemini: {}", e.getMessage());
             // Fallback seguro — retorna tudo como NAO_ENCONTRADO
             return atributosEsperados.stream()
                     .map(CampoSpec::naoEncontrado)

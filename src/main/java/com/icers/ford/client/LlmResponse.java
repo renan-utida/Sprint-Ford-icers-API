@@ -5,40 +5,47 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.util.List;
 
 /**
- * Representa a resposta da API da Anthropic (Claude).
- * @JsonIgnoreProperties ignora campos extras que não nos interessam.
+ * Representa a resposta da API do Google Gemini.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record LlmResponse(
-        String id,
-        List<ContentBlock> content,
-        Usage usage
+        List<Candidate> candidates,
+        UsageMetadata usageMetadata
 ) {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record ContentBlock(
-            String type,
+    public record Candidate(
+            Content content,
+            String finishReason
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Content(
+            List<Part> parts,
+            String role
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Part(
             String text
     ) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Usage(
-            Integer input_tokens,
-            Integer output_tokens
+    public record UsageMetadata(
+            Integer promptTokenCount,
+            Integer candidatesTokenCount,
+            Integer totalTokenCount
     ) {}
 
     /**
      * Extrai o texto da primeira resposta do modelo.
-     * A API da Anthropic retorna o texto dentro de content[0].text
+     * A API do Gemini retorna em candidates[0].content.parts[0].text
      */
     public String extractText() {
-        if (content == null || content.isEmpty()) {
-            return null;
-        }
-        return content.stream()
-                .filter(block -> "text".equals(block.type()))
-                .findFirst()
-                .map(ContentBlock::text)
-                .orElse(null);
+        if (candidates == null || candidates.isEmpty()) return null;
+        Content content = candidates.getFirst().content();
+        if (content == null || content.parts() == null
+                || content.parts().isEmpty()) return null;
+        return content.parts().getFirst().text();
     }
 }
