@@ -151,4 +151,22 @@ public class GlobalExceptionHandler {
                         request.getRequestURI()
                 ));
     }
+
+    // 429 — Rate limit excedido
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ErrorResponse> handleRateLimit(
+            RateLimitExceededException ex,
+            HttpServletRequest request
+    ) {
+        log.warn("Rate limit excedido — endpoint: {}",
+                request.getRequestURI());
+
+        return ResponseEntity
+                .status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(ex.getRetryAfterSeconds()))
+                .body(ErrorResponse.rateLimitExceeded(
+                        request.getRequestURI()
+                ));
+    }
 }

@@ -7,25 +7,30 @@ import com.icers.ford.dto.request.SpecQueryRequest;
 import com.icers.ford.dto.response.CampoSpec;
 import com.icers.ford.dto.response.SpecResponse;
 import com.icers.ford.exception.FichaNaoEncontradaException;
+import com.icers.ford.exception.RateLimitExceededException;
 import com.icers.ford.model.FichaTecnica;
 import com.icers.ford.model.HistoricoConsulta;
 import com.icers.ford.model.Usuario;
 import com.icers.ford.model.enums.ConfidenceLevel;
 import com.icers.ford.repository.FichaTecnicaRepository;
 import com.icers.ford.repository.HistoricoConsultaRepository;
-import lombok.RequiredArgsConstructor;
+import io.github.bucket4j.Bandwidth;
+import io.github.bucket4j.Bucket;
+import io.github.bucket4j.ConsumptionProbe;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class SpecService {
 
     private final FichaTecnicaRepository fichaTecnicaRepository;
@@ -33,16 +38,37 @@ public class SpecService {
     private final LlmClient llmClient;
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
+    private final int requestsPerMinute;
+
+    // Cache de buckets por usuário — um bucket por user_id
+    private final ConcurrentHashMap<Long, Bucket> bucketsPorUsuario =
+            new ConcurrentHashMap<>();
+
+    public SpecService(
+            FichaTecnicaRepository fichaTecnicaRepository,
+            HistoricoConsultaRepository historicoRepository,
+            LlmClient llmClient,
+            AuditService auditService,
+            ObjectMapper objectMapper,
+            @Value("${ratelimit.requests-per-minute:60}") int requestsPerMinute
+    ) {
+        this.fichaTecnicaRepository = fichaTecnicaRepository;
+        this.historicoRepository = historicoRepository;
+        this.llmClient = llmClient;
+        this.auditService = auditService;
+        this.objectMapper = objectMapper;
+        this.requestsPerMinute = requestsPerMinute;
+    }
 
     // QUERY — verifica cache, chama LLM se necessário
 
     /**
      * Consulta especificações de um veículo.
-     * Fluxo: verifica cache → se hit retorna do banco →
-     *        se miss chama LLM → salva no banco → retorna.
+     * Fluxo: rate limit → cache → LLM (se miss) → salva → retorna.
      */
     @Transactional
-    public SpecResponse query(SpecQueryRequest request, Usuario usuario, String ip) {
+    public SpecResponse query(SpecQueryRequest request,
+                              Usuario usuario, String ip) {
         long inicio = System.currentTimeMillis();
 
         String marca = request.marca().trim();
@@ -52,6 +78,9 @@ public class SpecService {
 
         log.info("Query — usuário: {} | veículo: {} {} {}",
                 usuario.getEmail(), marca, modelo, versao);
+
+        // Rate limiting por usuário — antes de qualquer operação
+        verificarRateLimitUsuario(usuario.getId(), ip);
 
         // Verifica cache no banco
         Optional<FichaTecnica> cache = fichaTecnicaRepository
@@ -83,10 +112,7 @@ public class SpecService {
                     marca, modelo, versao, atributos
             );
 
-            // Calcula confidence geral baseado nos campos retornados
             String confidenceGeral = calcularConfidenceGeral(campos);
-
-            // Salva no banco para consultas futuras
             salvarFicha(marca, modelo, versao, campos, confidenceGeral, usuario);
 
             response = SpecResponse.fromLlm(
@@ -151,9 +177,11 @@ public class SpecService {
         SpecResponse ficha1 = findByVeiculo(v1Marca, v1Modelo, v1Versao);
         SpecResponse ficha2 = findByVeiculo(v2Marca, v2Modelo, v2Versao);
 
-        List<String> atributosComparar = (atributos != null && !atributos.isEmpty())
-                ? atributos
-                : ficha1.campos().stream().map(CampoSpec::campo).toList();
+        List<String> atributosComparar =
+                (atributos != null && !atributos.isEmpty())
+                        ? atributos
+                        : ficha1.campos().stream()
+                        .map(CampoSpec::campo).toList();
 
         List<Map<String, Object>> comparativo = new ArrayList<>();
 
@@ -193,6 +221,35 @@ public class SpecService {
         return fichaTecnicaRepository.findWithFilters(marca, modelo);
     }
 
+    // RATE LIMITING POR USUÁRIO
+
+    /**
+     * Verifica rate limit por usuário antes de chamar o LLM.
+     * Cada usuário tem seu próprio bucket de 60 req/min.
+     * Lança RateLimitExceededException se o limite for excedido.
+     */
+    private void verificarRateLimitUsuario(Long usuarioId, String ip) {
+        Bucket bucket = bucketsPorUsuario.computeIfAbsent(usuarioId, id -> {
+            Bandwidth limite = Bandwidth.builder()
+                    .capacity(requestsPerMinute)
+                    .refillGreedy(requestsPerMinute, Duration.ofMinutes(1))
+                    .build();
+            return Bucket.builder().addLimit(limite).build();
+        });
+
+        ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
+
+        if (!probe.isConsumed()) {
+            long retryAfter = probe.getNanosToWaitForRefill() / 1_000_000_000;
+
+            auditService.logRateLimitExceeded(
+                    usuarioId, "/api/v1/specs/query", ip
+            );
+
+            throw new RateLimitExceededException(retryAfter);
+        }
+    }
+
     // MÉTODOS PRIVADOS
 
     private void salvarFicha(String marca, String modelo, String versao,
@@ -209,7 +266,8 @@ public class SpecService {
                     .criadoPor(usuario)
                     .build();
             fichaTecnicaRepository.save(ficha);
-            log.info("Ficha salva no banco — {} {} {}", marca, modelo, versao);
+            log.info("Ficha salva no banco — {} {} {}",
+                    marca, modelo, versao);
         } catch (JsonProcessingException e) {
             log.error("Falha ao serializar campos: {}", e.getMessage());
         }
@@ -246,8 +304,8 @@ public class SpecService {
 
     private void registrarHistorico(Usuario usuario, String marca,
                                     String modelo, String versao,
-                                    List<String> atributos, boolean cacheHit,
-                                    long tempoMs) {
+                                    List<String> atributos,
+                                    boolean cacheHit, long tempoMs) {
         try {
             String atributosJson = objectMapper.writeValueAsString(atributos);
             HistoricoConsulta historico = HistoricoConsulta.builder()
