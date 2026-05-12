@@ -26,4 +26,22 @@ public class FilterConfig {
 
         return registration;
     }
+
+    /**
+     * Registra o RequestLoggingFilter após o RateLimitFilter —
+     * loga metodo, endpoint, status e tempo de cada requisição.
+     * Nunca loga headers sensíveis (Authorization, Cookie).
+     */
+    @Bean
+    public FilterRegistrationBean<RequestLoggingFilter> requestLoggingFilter(
+            RequestLoggingFilter filter
+    ) {
+        FilterRegistrationBean<RequestLoggingFilter> registration =
+                new FilterRegistrationBean<>(filter);
+
+        registration.addUrlPatterns("/api/*");
+        registration.setOrder(2);
+
+        return registration;
+    }
 }

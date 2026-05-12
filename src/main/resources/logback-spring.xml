@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- ================================================= -->
+    <!-- PROPRIEDADES                                       -->
+    <!-- ================================================= -->
+    <springProperty scope="context" name="appName"
+                    source="spring.application.name"
+                    defaultValue="sprint-ford-api"/>
+
+    <springProperty scope="context" name="activeProfile"
+                    source="spring.profiles.active"
+                    defaultValue="dev"/>
+
+    <!-- ================================================= -->
+    <!-- CONSOLE APPENDER — DEV                            -->
+    <!-- Formato legível para desenvolvimento              -->
+    <!-- ================================================= -->
+    <springProfile name="dev">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>
+                    %d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %highlight(%-5level) %cyan(%logger{36}) - %msg%n
+                </pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+
+        <logger name="com.icers.ford" level="DEBUG" additivity="false">
+            <appender-ref ref="CONSOLE"/>
+        </logger>
+
+        <logger name="org.springframework.security" level="DEBUG" additivity="false">
+            <appender-ref ref="CONSOLE"/>
+        </logger>
+
+        <logger name="org.hibernate.SQL" level="DEBUG" additivity="false">
+            <appender-ref ref="CONSOLE"/>
+        </logger>
+    </springProfile>
+
+    <!-- ================================================= -->
+    <!-- JSON APPENDER — PROD                              -->
+    <!-- Logs estruturados para sistemas de monitoramento  -->
+    <!-- ================================================= -->
+    <springProfile name="prod">
+
+        <!-- Appender principal — JSON no console (capturado pelo sistema de log) -->
+        <appender name="JSON_CONSOLE"
+                  class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+                <pattern>
+                    {"timestamp":"%d{yyyy-MM-dd'T'HH:mm:ss.SSSZ}","level":"%level","app":"%property{appName}","profile":"%property{activeProfile}","thread":"%thread","logger":"%logger{36}","mensagem":"%replace(%msg){'\"','\\\"'}","exception":"%replace(%ex{short}){'\"','\\\"'}"}%n
+                </pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+
+        <!-- Appender de arquivo — rotação diária -->
+        <appender name="JSON_FILE"
+                  class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>logs/specradar.log</file>
+            <rollingPolicy
+                    class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                <!-- Rotação diária — mantém 30 dias -->
+                <fileNamePattern>logs/specradar.%d{yyyy-MM-dd}.log</fileNamePattern>
+                <maxHistory>30</maxHistory>
+                <totalSizeCap>1GB</totalSizeCap>
+            </rollingPolicy>
+            <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+                <pattern>
+                    {"timestamp":"%d{yyyy-MM-dd'T'HH:mm:ss.SSSZ}","level":"%level","app":"%property{appName}","thread":"%thread","logger":"%logger{36}","mensagem":"%replace(%msg){'\"','\\\"'}","exception":"%replace(%ex{short}){'\"','\\\"'}"}%n
+                </pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+
+        <!-- Appender separado só para WARN/ERROR — auditoria de segurança -->
+        <appender name="SECURITY_FILE"
+                  class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>logs/security.log</file>
+            <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+                <level>WARN</level>
+            </filter>
+            <rollingPolicy
+                    class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                <fileNamePattern>logs/security.%d{yyyy-MM-dd}.log</fileNamePattern>
+                <maxHistory>90</maxHistory>
+            </rollingPolicy>
+            <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+                <pattern>
+                    {"timestamp":"%d{yyyy-MM-dd'T'HH:mm:ss.SSSZ}","level":"%level","app":"%property{appName}","logger":"%logger{36}","mensagem":"%replace(%msg){'\"','\\\"'}"}%n
+                </pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+
+        <root level="WARN">
+            <appender-ref ref="JSON_CONSOLE"/>
+            <appender-ref ref="JSON_FILE"/>
+        </root>
+
+        <logger name="com.icers.ford" level="INFO" additivity="false">
+            <appender-ref ref="JSON_CONSOLE"/>
+            <appender-ref ref="JSON_FILE"/>
+        </logger>
+
+        <!-- Logger de segurança — captura WARN+ do Spring Security -->
+        <logger name="org.springframework.security" level="WARN" additivity="false">
+            <appender-ref ref="SECURITY_FILE"/>
+        </logger>
+
+        <!-- Logger de auditoria — captura tudo do AuditService -->
+        <logger name="com.icers.ford.service.AuditService"
+                level="INFO" additivity="false">
+            <appender-ref ref="JSON_FILE"/>
+            <appender-ref ref="SECURITY_FILE"/>
+        </logger>
+
+        <!-- Silencia loggers barulhentos em prod -->
+        <logger name="org.hibernate.SQL" level="OFF"/>
+        <logger name="org.hibernate.orm.jdbc.bind" level="OFF"/>
+        <logger name="org.flywaydb" level="WARN"/>
+
+    </springProfile>
+
+</configuration>
