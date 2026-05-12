@@ -30,7 +30,7 @@ public class ChatService {
      * Extrai marca, modelo, versão e atributos da mensagem,
      * delega para o SpecService e monta resposta conversacional.
      */
-    public ChatResponse processar(String mensagem, Usuario usuario) {
+    public ChatResponse processar(String mensagem, Usuario usuario, String ip) {
         log.debug("Processando mensagem: {}", mensagem);
 
         IntencaoConsulta intencao = extrairIntencao(mensagem);
@@ -53,7 +53,7 @@ public class ChatService {
                             : intencao.atributos()
             );
 
-            SpecResponse ficha = specService.query(request, usuario);
+            SpecResponse ficha = specService.query(request, usuario, ip);
             String resposta = montarRespostaConversacional(ficha);
             return ChatResponse.comFicha(resposta, ficha);
 

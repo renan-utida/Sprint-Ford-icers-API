@@ -42,7 +42,7 @@ public class SpecService {
      *        se miss chama LLM → salva no banco → retorna.
      */
     @Transactional
-    public SpecResponse query(SpecQueryRequest request, Usuario usuario) {
+    public SpecResponse query(SpecQueryRequest request, Usuario usuario, String ip) {
         long inicio = System.currentTimeMillis();
 
         String marca = request.marca().trim();
@@ -99,7 +99,7 @@ public class SpecService {
                 atributos, cacheHit, tempoMs);
 
         auditService.logConsulta(
-                usuario.getId(), "/api/v1/specs/query", null,
+                usuario.getId(), "/api/v1/specs/query", ip,
                 marca, modelo, versao, cacheHit, 200
         );
 
