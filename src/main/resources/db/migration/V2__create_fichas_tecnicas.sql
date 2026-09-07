@@ -1,10 +1,14 @@
 -- V2: Tabela de Fichas Técnicas
 
-CREATE SEQUENCE seq_ficha_id
-    START WITH 1
-    INCREMENT BY 1
-    NOCACHE
-    NOCYCLE;
+BEGIN
+EXECUTE IMMEDIATE 'CREATE SEQUENCE seq_ficha_id START WITH 1 INCREMENT BY 1 NOCACHE NOCYCLE';
+EXCEPTION
+    WHEN OTHERS THEN
+        IF SQLCODE != -955 THEN
+            RAISE;
+        END IF;
+END;
+/
 
 CREATE TABLE sr_fichas_tecnicas (
     id                  NUMBER DEFAULT seq_ficha_id.NEXTVAL NOT NULL,
@@ -18,22 +22,21 @@ CREATE TABLE sr_fichas_tecnicas (
     criado_por          NUMBER          NOT NULL,
     criado_em           TIMESTAMP       DEFAULT CURRENT_TIMESTAMP NOT NULL,
     atualizado_em       TIMESTAMP       DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    CONSTRAINT pk_ficha PRIMARY KEY (id),
-    CONSTRAINT fk_ficha_usuario FOREIGN KEY (criado_por)
+    CONSTRAINT pk_sr_ficha PRIMARY KEY (id),
+    CONSTRAINT fk_sr_ficha_usuario FOREIGN KEY (criado_por)
         REFERENCES sr_usuarios(id),
-    CONSTRAINT ck_ficha_confidence CHECK (
+    CONSTRAINT ck_sr_ficha_confidence CHECK (
         confidence_geral IN ('ALTA', 'MEDIA', 'PARCIAL', 'BAIXA')
-    ),
-    CONSTRAINT chk_campos_json CHECK (campos_json IS JSON)
+    )
 );
 
-CREATE INDEX idx_ficha_marca   ON sr_fichas_tecnicas(marca);
-CREATE INDEX idx_ficha_modelo  ON sr_fichas_tecnicas(modelo);
-CREATE INDEX idx_ficha_versao  ON sr_fichas_tecnicas(versao);
-CREATE INDEX idx_ficha_criado  ON sr_fichas_tecnicas(criado_em);
+CREATE INDEX idx_sr_ficha_marca   ON sr_fichas_tecnicas(marca);
+CREATE INDEX idx_sr_ficha_modelo  ON sr_fichas_tecnicas(modelo);
+CREATE INDEX idx_sr_ficha_versao  ON sr_fichas_tecnicas(versao);
+CREATE INDEX idx_sr_ficha_criado  ON sr_fichas_tecnicas(criado_em);
 
 -- Índice composto para a busca mais comum (GET por veículo)
-CREATE INDEX idx_ficha_veiculo ON sr_fichas_tecnicas(marca, modelo, versao);
+CREATE INDEX idx_sr_ficha_veiculo ON sr_fichas_tecnicas(marca, modelo, versao);
 
 COMMENT ON TABLE  sr_fichas_tecnicas                IS 'Fichas técnicas de veículos extraídas via LLM';
 COMMENT ON COLUMN sr_fichas_tecnicas.campos_json    IS 'JSON com array de CampoSpec: [{campo, valor, confianca, fonte, verificadoEm}]';

@@ -19,15 +19,17 @@ import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
-@Component
 public class RateLimitFilter extends OncePerRequestFilter {
 
     // Cache de buckets por IP — um bucket por endereço IP
     private final ConcurrentHashMap<String, Bucket> bucketsPorIp =
             new ConcurrentHashMap<>();
 
-    @Value("${ratelimit.requests-per-minute:60}")
-    private int requestsPerMinute;
+    private final int requestsPerMinute;
+
+    public RateLimitFilter(int requestsPerMinute) {
+        this.requestsPerMinute = requestsPerMinute;
+    }
 
     @Override
     protected void doFilterInternal(

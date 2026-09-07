@@ -149,16 +149,7 @@ public class SpecService {
                         new FichaNaoEncontradaException(marca, modelo, versao)
                 );
 
-        List<CampoSpec> campos = parsearCamposJson(
-                ficha.getCamposJson(), List.of()
-        );
-
-        return SpecResponse.fromCache(
-                ficha.getMarca(), ficha.getModelo(), ficha.getVersao(),
-                campos,
-                ficha.getConfidenceGeral().name(),
-                ficha.getVerificadoEm()
-        );
+        return toSpecResponse(ficha);
     }
 
     // COMPARE — comparativo entre dois veículos
@@ -217,8 +208,11 @@ public class SpecService {
     // HISTORY — lista fichas com filtros
 
     @Transactional(readOnly = true)
-    public List<FichaTecnica> listarHistorico(String marca, String modelo) {
-        return fichaTecnicaRepository.findWithFilters(marca, modelo);
+    public List<SpecResponse> listarHistorico(String marca, String modelo) {
+        return fichaTecnicaRepository.findWithFilters(marca, modelo)
+                .stream()
+                .map(this::toSpecResponse)
+                .toList();
     }
 
     // RATE LIMITING POR USUÁRIO
@@ -251,6 +245,23 @@ public class SpecService {
     }
 
     // MÉTODOS PRIVADOS
+
+    /**
+     * Converte a entidade FichaTecnica para o DTO público SpecResponse.
+     * Nunca deixa a entidade JPA (nem o relacionamento LAZY criadoPor →
+     * Usuario, que carrega o hash da senha) sair do service.
+     */
+    private SpecResponse toSpecResponse(FichaTecnica ficha) {
+        List<CampoSpec> campos = parsearCamposJson(
+                ficha.getCamposJson(), List.of()
+        );
+        return SpecResponse.fromCache(
+                ficha.getMarca(), ficha.getModelo(), ficha.getVersao(),
+                campos,
+                ficha.getConfidenceGeral().name(),
+                ficha.getVerificadoEm()
+        );
+    }
 
     private void salvarFicha(String marca, String modelo, String versao,
                              List<CampoSpec> campos, String confidenceGeral,

@@ -15,8 +15,6 @@ import java.io.IOException;
 import java.util.Set;
 
 @Slf4j
-@Component
-@Order(2)
 public class RequestLoggingFilter extends OncePerRequestFilter {
 
     /**

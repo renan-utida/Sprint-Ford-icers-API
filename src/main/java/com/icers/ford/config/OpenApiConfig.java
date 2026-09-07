@@ -12,6 +12,7 @@ import io.swagger.v3.oas.models.servers.Server;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -245,42 +246,49 @@ public class OpenApiConfig {
     }
 
     private Example exemploErro404() {
+        // Map.of(...) rejeita valores null — usamos HashMap aqui porque
+        // campos_invalidos é intencionalmente null neste exemplo
+        // (reflete o formato real do ErrorResponse em erros sem
+        // validação de campo).
+        Map<String, Object> valor = new HashMap<>();
+        valor.put("codigo_erro", "NOT_FOUND");
+        valor.put("mensagem", "Ficha técnica não encontrada para: " +
+                "Toyota Hilux GR-Sport. " +
+                "Use POST /api/v1/specs/query para consultar.");
+        valor.put("timestamp", "2026-05-12T14:30:00");
+        valor.put("endpoint", "/api/v1/specs/Toyota/Hilux/GR-Sport");
+        valor.put("campos_invalidos", null);
+
         return new Example()
                 .summary("Veículo não encontrado no banco")
-                .value(Map.of(
-                        "codigo_erro", "NOT_FOUND",
-                        "mensagem", "Ficha técnica não encontrada para: " +
-                                "Toyota Hilux GR-Sport. " +
-                                "Use POST /api/v1/specs/query para consultar.",
-                        "timestamp", "2026-05-12T14:30:00",
-                        "endpoint", "/api/v1/specs/Toyota/Hilux/GR-Sport",
-                        "campos_invalidos", null
-                ));
+                .value(valor);
     }
 
     private Example exemploErro429() {
+        Map<String, Object> valor = new HashMap<>();
+        valor.put("codigo_erro", "RATE_LIMIT_EXCEEDED");
+        valor.put("mensagem", "Limite de requisições excedido. " +
+                "Aguarde antes de tentar novamente.");
+        valor.put("timestamp", "2026-05-12T14:30:00");
+        valor.put("endpoint", "/api/v1/specs/query");
+        valor.put("campos_invalidos", null);
+
         return new Example()
                 .summary("Rate limit excedido")
-                .value(Map.of(
-                        "codigo_erro", "RATE_LIMIT_EXCEEDED",
-                        "mensagem", "Limite de requisições excedido. " +
-                                "Aguarde antes de tentar novamente.",
-                        "timestamp", "2026-05-12T14:30:00",
-                        "endpoint", "/api/v1/specs/query",
-                        "campos_invalidos", null
-                ));
+                .value(valor);
     }
 
     private Example exemploErro503() {
+        Map<String, Object> valor = new HashMap<>();
+        valor.put("codigo_erro", "SERVICE_UNAVAILABLE");
+        valor.put("mensagem", "O serviço está temporariamente indisponível. " +
+                "Tente novamente em instantes.");
+        valor.put("timestamp", "2026-05-12T14:30:00");
+        valor.put("endpoint", "/api/v1/specs/query");
+        valor.put("campos_invalidos", null);
+
         return new Example()
                 .summary("Serviço de extração indisponível")
-                .value(Map.of(
-                        "codigo_erro", "SERVICE_UNAVAILABLE",
-                        "mensagem", "O serviço está temporariamente indisponível. " +
-                                "Tente novamente em instantes.",
-                        "timestamp", "2026-05-12T14:30:00",
-                        "endpoint", "/api/v1/specs/query",
-                        "campos_invalidos", null
-                ));
+                .value(valor);
     }
 }

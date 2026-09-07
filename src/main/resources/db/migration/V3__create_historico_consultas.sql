@@ -1,10 +1,14 @@
 -- V3: Tabela de Histórico de Consultas
 
-CREATE SEQUENCE seq_historico_id
-    START WITH 1
-    INCREMENT BY 1
-    NOCACHE
-    NOCYCLE;
+BEGIN
+EXECUTE IMMEDIATE 'CREATE SEQUENCE seq_historico_id START WITH 1 INCREMENT BY 1 NOCACHE NOCYCLE';
+EXCEPTION
+    WHEN OTHERS THEN
+        IF SQLCODE != -955 THEN
+            RAISE;
+        END IF;
+END;
+/
 
 CREATE TABLE sr_historico_consultas (
     id                      NUMBER DEFAULT seq_historico_id.NEXTVAL NOT NULL,
@@ -16,15 +20,15 @@ CREATE TABLE sr_historico_consultas (
     cache_hit               VARCHAR2(1)     DEFAULT 'N' NOT NULL,
     tempo_resposta_ms       NUMBER(10),
     criado_em               TIMESTAMP       DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    CONSTRAINT pk_historico PRIMARY KEY (id),
-    CONSTRAINT fk_historico_usuario FOREIGN KEY (usuario_id)
+    CONSTRAINT pk_sr_historico PRIMARY KEY (id),
+    CONSTRAINT fk_sr_historico_usuario FOREIGN KEY (usuario_id)
         REFERENCES sr_usuarios(id),
-    CONSTRAINT ck_historico_cache CHECK (cache_hit IN ('S', 'N'))
+    CONSTRAINT ck_sr_historico_cache CHECK (cache_hit IN ('S', 'N'))
 );
 
-CREATE INDEX idx_historico_usuario   ON sr_historico_consultas(usuario_id);
-CREATE INDEX idx_historico_criado    ON sr_historico_consultas(criado_em);
-CREATE INDEX idx_historico_veiculo   ON sr_historico_consultas(marca, modelo, versao);
+CREATE INDEX idx_sr_historico_usuario   ON sr_historico_consultas(usuario_id);
+CREATE INDEX idx_sr_historico_criado    ON sr_historico_consultas(criado_em);
+CREATE INDEX idx_sr_historico_veiculo   ON sr_historico_consultas(marca, modelo, versao);
 
 COMMENT ON TABLE  sr_historico_consultas                    IS 'Log de todas as consultas realizadas na plataforma';
 COMMENT ON COLUMN sr_historico_consultas.atributos_solicitados IS 'JSON com lista de atributos solicitados pelo usuário';

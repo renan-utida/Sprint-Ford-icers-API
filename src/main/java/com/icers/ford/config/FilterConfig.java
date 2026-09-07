@@ -1,5 +1,6 @@
 package com.icers.ford.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -8,6 +9,9 @@ import org.springframework.core.Ordered;
 @Configuration
 public class FilterConfig {
 
+    @Value("${ratelimit.requests-per-minute:60}")
+    private int requestsPerMinute;
+
     /**
      * Registra o RateLimitFilter com prioridade alta —
      * executa antes do JwtAuthFilter e do Spring Security.
@@ -15,15 +19,11 @@ public class FilterConfig {
      * em requisições não autenticadas (ex: brute force no /login).
      */
     @Bean
-    public FilterRegistrationBean<RateLimitFilter> rateLimitFilter(
-            RateLimitFilter filter
-    ) {
+    public FilterRegistrationBean<RateLimitFilter> rateLimitFilter() {
         FilterRegistrationBean<RateLimitFilter> registration =
-                new FilterRegistrationBean<>(filter);
-
+                new FilterRegistrationBean<>(new RateLimitFilter(requestsPerMinute));
         registration.addUrlPatterns("/api/*");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
-
         return registration;
     }
 
@@ -33,15 +33,11 @@ public class FilterConfig {
      * Nunca loga headers sensíveis (Authorization, Cookie).
      */
     @Bean
-    public FilterRegistrationBean<RequestLoggingFilter> requestLoggingFilter(
-            RequestLoggingFilter filter
-    ) {
+    public FilterRegistrationBean<RequestLoggingFilter> requestLoggingFilter() {
         FilterRegistrationBean<RequestLoggingFilter> registration =
-                new FilterRegistrationBean<>(filter);
-
+                new FilterRegistrationBean<>(new RequestLoggingFilter());
         registration.addUrlPatterns("/api/*");
         registration.setOrder(2);
-
         return registration;
     }
 }

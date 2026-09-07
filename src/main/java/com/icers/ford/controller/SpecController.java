@@ -3,7 +3,6 @@ package com.icers.ford.controller;
 import com.icers.ford.dto.request.SpecQueryRequest;
 import com.icers.ford.dto.response.ErrorResponse;
 import com.icers.ford.dto.response.SpecResponse;
-import com.icers.ford.model.FichaTecnica;
 import com.icers.ford.model.Usuario;
 import com.icers.ford.repository.UsuarioRepository;
 import com.icers.ford.service.AuditService;
@@ -168,14 +167,14 @@ public class SpecController {
     })
     @GetMapping("/history")
     @PreAuthorize("hasAnyRole('ANALYST', 'ADMIN')")
-    public ResponseEntity<List<FichaTecnica>> history(
+    public ResponseEntity<List<SpecResponse>> history(
             @Parameter(description = "Filtrar por marca (opcional)", example = "Ford")
             @RequestParam(required = false) String marca,
 
             @Parameter(description = "Filtrar por modelo (opcional)", example = "Ranger")
             @RequestParam(required = false) String modelo
     ) {
-        List<FichaTecnica> historico = specService.listarHistorico(marca, modelo);
+        List<SpecResponse> historico = specService.listarHistorico(marca, modelo);
         return ResponseEntity.ok(historico);
     }
 
