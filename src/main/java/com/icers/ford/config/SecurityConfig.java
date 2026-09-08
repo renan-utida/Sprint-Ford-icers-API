@@ -83,7 +83,7 @@ public class SecurityConfig {
                 .exceptionHandling(ex -> ex
                         .authenticationEntryPoint((request, response, authException) -> {
                             response.setStatus(401);
-                            response.setContentType("application/json");
+                            response.setContentType("application/json;charset=UTF-8");
                             response.getWriter().write(
                                     "{\"codigo_erro\":\"UNAUTHORIZED\"," +
                                             "\"mensagem\":\"Token ausente ou inválido.\"}"
@@ -91,7 +91,7 @@ public class SecurityConfig {
                         })
                         .accessDeniedHandler((request, response, accessDeniedException) -> {
                             response.setStatus(403);
-                            response.setContentType("application/json");
+                            response.setContentType("application/json;charset=UTF-8");
                             response.getWriter().write(
                                     "{\"codigo_erro\":\"FORBIDDEN\"," +
                                             "\"mensagem\":\"Você não tem permissão para acessar este recurso.\"}"
