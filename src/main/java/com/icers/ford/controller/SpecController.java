@@ -51,7 +51,9 @@ public class SpecController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Ficha técnica retornada com sucesso",
                     content = @Content(schema = @Schema(implementation = SpecResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Dados de entrada inválidos",
+            @ApiResponse(responseCode = "400", description = "Corpo da requisição malformado (JSON inválido)",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "422", description = "Dados de entrada inválidos",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
             @ApiResponse(responseCode = "401", description = "Token ausente ou inválido",
                     content = @Content),

@@ -57,9 +57,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
                     String.valueOf(probe.getRemainingTokens()));
             chain.doFilter(request, response);
         } else {
-            // Calcula segundos para o bucket recarregar
+            // Calcula segundos para o bucket recarregar — arredonda pra
+            // cima (ceiling division), nunca mostra "0 segundos" quando
+            // ainda falta uma fração de segundo de espera real.
+            long nanosParaEsperar = probe.getNanosToWaitForRefill();
             long retryAfterSeconds =
-                    probe.getNanosToWaitForRefill() / 1_000_000_000;
+                    (nanosParaEsperar + 999_999_999L) / 1_000_000_000L;
 
             log.warn("Rate limit excedido por IP: {} | endpoint: {} | retry-after: {}s",
                     ip, uri, retryAfterSeconds);

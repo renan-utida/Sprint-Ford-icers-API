@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
@@ -19,7 +20,11 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    // 400 — Validação de campos (Bean Validation)
+    // 422 — Validação de campos (Bean Validation)
+    // Status 422 (não 400) porque o corpo da requisição é sintaticamente
+    // válido — só falha em regras semânticas (regex, tamanho, etc.).
+    // Alinhado com o que a proposta do grupo especifica para este tipo
+    // de erro (401/404/422/500).
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidation(
@@ -42,10 +47,34 @@ public class GlobalExceptionHandler {
                 request.getRequestURI(), camposInvalidos.keySet());
 
         return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
+                .status(HttpStatus.UNPROCESSABLE_ENTITY)
                 .body(ErrorResponse.ofValidation(
                         request.getRequestURI(),
                         camposInvalidos
+                ));
+    }
+
+    // 400 — Corpo da requisição malformado (JSON inválido)
+    // Diferente da validação acima: aqui o corpo nem chega a ser
+    // parseado com sucesso, então o erro é sintático, não semântico —
+    // por isso 400, não 422. Sem este handler, isso caía no handler
+    // genérico (500), o que é incorreto: a culpa é do cliente, não do
+    // servidor.
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleJsonInvalido(
+            HttpMessageNotReadableException ex,
+            HttpServletRequest request
+    ) {
+        log.warn("Corpo da requisição malformado — endpoint: {} | causa: {}",
+                request.getRequestURI(), ex.getMostSpecificCause().getMessage());
+
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ErrorResponse.of(
+                        "VALIDATION_ERROR",
+                        "Corpo da requisição inválido ou malformado.",
+                        request.getRequestURI()
                 ));
     }
 

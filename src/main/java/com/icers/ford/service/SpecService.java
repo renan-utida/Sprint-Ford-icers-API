@@ -50,7 +50,7 @@ public class SpecService {
             LlmClient llmClient,
             AuditService auditService,
             ObjectMapper objectMapper,
-            @Value("${ratelimit.requests-per-minute:60}") int requestsPerMinute
+            @Value("${ratelimit.user.requests-per-minute:60}") int requestsPerMinute
     ) {
         this.fichaTecnicaRepository = fichaTecnicaRepository;
         this.historicoRepository = historicoRepository;
@@ -234,7 +234,8 @@ public class SpecService {
         ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
 
         if (!probe.isConsumed()) {
-            long retryAfter = probe.getNanosToWaitForRefill() / 1_000_000_000;
+            long retryAfter =
+                    (probe.getNanosToWaitForRefill() + 999_999_999L) / 1_000_000_000L;
 
             auditService.logRateLimitExceeded(
                     usuarioId, "/api/v1/specs/query", ip

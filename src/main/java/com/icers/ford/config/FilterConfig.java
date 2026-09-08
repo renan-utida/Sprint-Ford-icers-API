@@ -9,7 +9,7 @@ import org.springframework.core.Ordered;
 @Configuration
 public class FilterConfig {
 
-    @Value("${ratelimit.requests-per-minute:60}")
+    @Value("${ratelimit.ip.requests-per-minute:60}")
     private int requestsPerMinute;
 
     /**

@@ -52,7 +52,9 @@ public class AuthController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Login bem-sucedido",
                     content = @Content(schema = @Schema(implementation = AuthResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Dados de entrada inválidos",
+            @ApiResponse(responseCode = "400", description = "Corpo da requisição malformado (JSON inválido)",
+                    content = @Content),
+            @ApiResponse(responseCode = "422", description = "Dados de entrada inválidos",
                     content = @Content),
             @ApiResponse(responseCode = "401", description = "Credenciais inválidas",
                     content = @Content)
@@ -146,7 +148,9 @@ public class AuthController {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Tokens renovados",
                     content = @Content(schema = @Schema(implementation = AuthResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Refresh token ausente",
+            @ApiResponse(responseCode = "400", description = "Corpo da requisição malformado (JSON inválido)",
+                    content = @Content),
+            @ApiResponse(responseCode = "422", description = "Refresh token ausente",
                     content = @Content),
             @ApiResponse(responseCode = "401", description = "Refresh token inválido ou expirado",
                     content = @Content)
