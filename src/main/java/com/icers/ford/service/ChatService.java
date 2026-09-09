@@ -18,12 +18,11 @@ import java.util.regex.Pattern;
 public class ChatService {
 
     private final SpecService specService;
+    private final ConfigService configService;
 
-    // Atributos padrão quando o usuário não especifica nenhum
-    private static final List<String> ATRIBUTOS_PADRAO = List.of(
-            "motor", "potencia", "torque", "transmissao",
-            "tracao", "preco", "consumo", "dimensoes"
-    );
+    // Atributos padrão agora vêm de ConfigService (tabela sr_config,
+    // editável via PUT /api/v1/specs/config — só ADMIN). Antes era um
+    // array fixo aqui, sem jeito de mudar sem recompilar.
 
     /**
      * Processa uma mensagem em linguagem natural.
@@ -49,7 +48,7 @@ public class ChatService {
                     intencao.modelo(),
                     intencao.versao() != null ? intencao.versao() : "base",
                     intencao.atributos().isEmpty()
-                            ? ATRIBUTOS_PADRAO
+                            ? configService.getAtributosPadrao()
                             : intencao.atributos()
             );
 

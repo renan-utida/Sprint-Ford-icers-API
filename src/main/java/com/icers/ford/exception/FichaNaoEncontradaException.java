@@ -8,6 +8,11 @@ public class FichaNaoEncontradaException extends RuntimeException {
 
     public FichaNaoEncontradaException(String marca, String modelo, String versao) {
         super("Ficha técnica não encontrada para: "
-                + marca + " " + modelo + " " + versao);
+                + marca + " " + modelo + " " + versao
+                + ". Use POST /api/v1/specs/query para consultar e armazenar a ficha deste veículo.");
+    }
+
+    public FichaNaoEncontradaException(Long id) {
+        super("Ficha técnica não encontrada para o id: " + id);
     }
 }

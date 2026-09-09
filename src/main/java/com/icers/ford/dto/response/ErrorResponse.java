@@ -95,10 +95,23 @@ public record ErrorResponse(
     /**
      * Erro 429 — rate limit excedido
      */
-    public static ErrorResponse rateLimitExceeded(String endpoint) {
+    public static ErrorResponse rateLimitExceeded(String endpoint, long retryAfterSeconds) {
         return of(
                 "RATE_LIMIT_EXCEEDED",
-                "Limite de requisições excedido. Aguarde antes de tentar novamente.",
+                "Limite de requisições excedido. Aguarde " + retryAfterSeconds + " segundos.",
+                endpoint
+        );
+    }
+
+    /**
+     * Erro 429 — conta temporariamente bloqueada por excesso de
+     * tentativas de login falhas
+     */
+    public static ErrorResponse accountLocked(String endpoint, long retryAfterSeconds) {
+        return of(
+                "ACCOUNT_LOCKED",
+                "Muitas tentativas de login falhas. Aguarde " + retryAfterSeconds
+                        + " segundos antes de tentar novamente.",
                 endpoint
         );
     }

@@ -215,6 +215,17 @@ public class SpecService {
                 .toList();
     }
 
+    // DELETE — remove uma ficha técnica (ação administrativa)
+
+    @Transactional
+    public void deletarFicha(Long id) {
+        if (!fichaTecnicaRepository.existsById(id)) {
+            throw new FichaNaoEncontradaException(id);
+        }
+        fichaTecnicaRepository.deleteById(id);
+        log.info("Ficha técnica deletada — id: {}", id);
+    }
+
     // RATE LIMITING POR USUÁRIO
 
     /**

@@ -1,11 +1,14 @@
 package com.icers.ford.controller;
 
+import com.icers.ford.dto.request.ConfigRequest;
 import com.icers.ford.dto.request.SpecQueryRequest;
+import com.icers.ford.dto.response.ConfigResponse;
 import com.icers.ford.dto.response.ErrorResponse;
 import com.icers.ford.dto.response.SpecResponse;
 import com.icers.ford.model.Usuario;
 import com.icers.ford.repository.UsuarioRepository;
 import com.icers.ford.service.AuditService;
+import com.icers.ford.service.ConfigService;
 import com.icers.ford.service.SpecService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -38,6 +41,7 @@ public class SpecController {
 
     private final SpecService specService;
     private final AuditService auditService;
+    private final ConfigService configService;
     private final UsuarioRepository usuarioRepository;
 
     // POST /api/v1/specs/query
@@ -178,6 +182,94 @@ public class SpecController {
     ) {
         List<SpecResponse> historico = specService.listarHistorico(marca, modelo);
         return ResponseEntity.ok(historico);
+    }
+
+    // DELETE /api/v1/specs/{id} — exclusivo de ADMIN
+
+    @Operation(
+            summary = "Deletar ficha técnica [ADMIN]",
+            description = "Remove permanentemente uma ficha técnica do banco. " +
+                    "Ação administrativa — não afeta o histórico de consultas já registrado."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Ficha removida com sucesso"),
+            @ApiResponse(responseCode = "401", description = "Token ausente ou inválido",
+                    content = @Content),
+            @ApiResponse(responseCode = "403", description = "Apenas ADMIN pode remover fichas",
+                    content = @Content),
+            @ApiResponse(responseCode = "404", description = "Ficha não encontrada",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> deletar(
+            @Parameter(description = "ID da ficha técnica", example = "1")
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest httpRequest
+    ) {
+        Usuario usuario = resolverUsuario(userDetails.getUsername());
+        String ip = extrairIp(httpRequest);
+
+        specService.deletarFicha(id);
+
+        auditService.logAdminAction(usuario.getId(), ip, "DELETE_FICHA",
+                "Ficha id=" + id + " removida");
+
+        return ResponseEntity.noContent().build();
+    }
+
+    // GET/PUT /api/v1/specs/config — exclusivo de ADMIN
+
+    @Operation(
+            summary = "Ver configuração atual [ADMIN]",
+            description = "Retorna a lista de atributos usados por padrão quando o chat " +
+                    "não identifica nenhum atributo específico na mensagem do usuário."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Configuração retornada"),
+            @ApiResponse(responseCode = "401", description = "Token ausente ou inválido",
+                    content = @Content),
+            @ApiResponse(responseCode = "403", description = "Apenas ADMIN pode ver a configuração",
+                    content = @Content)
+    })
+    @GetMapping("/config")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ConfigResponse> verConfig() {
+        return ResponseEntity.ok(configService.getConfig());
+    }
+
+    @Operation(
+            summary = "Atualizar atributos padrão [ADMIN]",
+            description = "Define a lista de atributos usados por padrão pelo chat quando " +
+                    "a mensagem do usuário não menciona nenhum atributo específico. " +
+                    "Não afeta consultas via POST /specs/query, que sempre exige a lista " +
+                    "explicitamente."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Configuração atualizada"),
+            @ApiResponse(responseCode = "400", description = "Corpo da requisição malformado (JSON inválido)",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Token ausente ou inválido",
+                    content = @Content),
+            @ApiResponse(responseCode = "403", description = "Apenas ADMIN pode alterar a configuração",
+                    content = @Content),
+            @ApiResponse(responseCode = "422", description = "Lista de atributos inválida",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @PutMapping("/config")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ConfigResponse> atualizarConfig(
+            @Valid @RequestBody ConfigRequest request,
+            @AuthenticationPrincipal UserDetails userDetails
+    ) {
+        Usuario admin = resolverUsuario(userDetails.getUsername());
+
+        ConfigResponse response = configService.atualizarAtributosPadrao(
+                request.atributosPadrao(), admin
+        );
+
+        return ResponseEntity.ok(response);
     }
 
     // POST /api/v1/specs/from-pdf — ROADMAP Sprint 4

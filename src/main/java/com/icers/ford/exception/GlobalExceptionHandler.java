@@ -91,8 +91,7 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
                 .body(ErrorResponse.notFound(
-                        ex.getMessage() + ". Use POST /api/v1/specs/query " +
-                                "para consultar e armazenar a ficha deste veículo.",
+                        ex.getMessage(),
                         request.getRequestURI()
                 ));
     }
@@ -195,7 +194,8 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.TOO_MANY_REQUESTS)
                 .header("Retry-After", String.valueOf(ex.getRetryAfterSeconds()))
                 .body(ErrorResponse.rateLimitExceeded(
-                        request.getRequestURI()
+                        request.getRequestURI(),
+                        ex.getRetryAfterSeconds()
                 ));
     }
 }

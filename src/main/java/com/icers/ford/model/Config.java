@@ -1,0 +1,56 @@
+package com.icers.ford.model;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+/**
+ * Configurações editáveis do sistema, sem precisar recompilar/redeployar.
+ * Hoje guarda só a lista de atributos padrão do chat (movida de uma
+ * constante hardcoded no ChatService para cá) — desenhada para acomodar
+ * outras configurações no futuro, se surgirem.
+ */
+@Entity
+@Table(name = "sr_config")
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class Config {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "seq_config")
+    @SequenceGenerator(
+            name = "seq_config",
+            sequenceName = "seq_config_id",
+            allocationSize = 1
+    )
+    @Column(name = "id")
+    private Long id;
+
+    /**
+     * JSON com array de strings — ex: ["motor","potencia","torque"].
+     * Usado pelo ChatService quando a mensagem do usuário não menciona
+     * nenhum atributo específico.
+     */
+    @Lob
+    @Column(name = "atributos_padrao", nullable = false)
+    private String atributosPadraoJson;
+
+    @Column(name = "atualizado_em", nullable = false)
+    private LocalDateTime atualizadoEm;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "atualizado_por", nullable = false)
+    private Usuario atualizadoPor;
+
+    @PrePersist
+    @PreUpdate
+    protected void prePersistUpdate() {
+        this.atualizadoEm = LocalDateTime.now();
+    }
+}

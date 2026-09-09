@@ -3,11 +3,12 @@ package com.icers.ford.controller;
 import com.icers.ford.dto.request.LoginRequest;
 import com.icers.ford.dto.request.RefreshRequest;
 import com.icers.ford.dto.response.AuthResponse;
+import com.icers.ford.dto.response.ErrorResponse;
 import com.icers.ford.model.Usuario;
-import com.icers.ford.repository.AuditLogRepository;
 import com.icers.ford.repository.UsuarioRepository;
-import com.icers.ford.model.AuditLog;
 import com.icers.ford.security.JwtService;
+import com.icers.ford.service.AuditService;
+import com.icers.ford.service.LoginLockoutService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -18,6 +19,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -26,6 +28,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 @Slf4j
 @RestController
@@ -37,7 +40,8 @@ public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final JwtService jwtService;
     private final UsuarioRepository usuarioRepository;
-    private final AuditLogRepository auditLogRepository;
+    private final AuditService auditService;
+    private final LoginLockoutService loginLockoutService;
 
     // Expiração do access token em segundos para o response (8h)
     private static final long ACCESS_TOKEN_EXPIRES_IN = 28800L;
@@ -57,14 +61,31 @@ public class AuthController {
             @ApiResponse(responseCode = "422", description = "Dados de entrada inválidos",
                     content = @Content),
             @ApiResponse(responseCode = "401", description = "Credenciais inválidas",
-                    content = @Content)
+                    content = @Content),
+            @ApiResponse(responseCode = "429", description = "Conta temporariamente bloqueada por excesso de tentativas falhas",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     @PostMapping("/login")
-    public ResponseEntity<AuthResponse> login(
+    public ResponseEntity<Object> login(
             @Valid @RequestBody LoginRequest request,
             HttpServletRequest httpRequest
     ) {
         String ip = extrairIp(httpRequest);
+
+        // Bloqueio por CONTA (não por IP — ver LoginLockoutService).
+        // Checado antes de autenticar, pra não gastar verificação de
+        // senha (BCrypt) durante um bloqueio já ativo.
+        Optional<Long> bloqueio = loginLockoutService.segundosRestantesDeBloqueio(request.email());
+        if (bloqueio.isPresent()) {
+            long segundos = bloqueio.get();
+            log.warn("Login bloqueado — email: {} | ip: {} | restam: {}s",
+                    mascararEmail(request.email()), ip, segundos);
+
+            return ResponseEntity
+                    .status(HttpStatus.TOO_MANY_REQUESTS)
+                    .header("Retry-After", String.valueOf(segundos))
+                    .body(ErrorResponse.accountLocked("/api/v1/auth/login", segundos));
+        }
 
         try {
             // Autentica via Spring Security — valida email + senha com BCrypt
@@ -96,16 +117,11 @@ public class AuthController {
                     LocalDateTime.now()
             );
 
-            // Loga o evento de login bem-sucedido
-            registrarAudit(
-                    null, // sem hash ainda — usuário acabou de autenticar
-                    "/api/v1/auth/login",
-                    "POST",
-                    200,
-                    ip,
-                    "AUTH_SUCCESS",
-                    "Login: " + mascararEmail(usuario.getEmail())
-            );
+            // Loga o evento de login bem-sucedido — via AuditService, que
+            // também cuida do hash do userId de forma consistente com o
+            // resto do sistema.
+            auditService.logAuthSuccess(usuario.getId(), ip, usuario.getEmail());
+            loginLockoutService.registrarSucesso(usuario.getEmail());
 
             log.info("Login bem-sucedido — email: {} | ip: {}",
                     mascararEmail(usuario.getEmail()), ip);
@@ -124,17 +140,20 @@ public class AuthController {
             log.warn("Falha de autenticação — ip: {} | email tentado: {}",
                     ip, mascararEmail(request.email()));
 
-            registrarAudit(
-                    null,
-                    "/api/v1/auth/login",
-                    "POST",
-                    401,
-                    ip,
-                    "AUTH_FAILURE",
-                    "Credenciais inválidas para: " + mascararEmail(request.email())
-            );
+            // AuditService.logAuthFailure já dispara a verificação de
+            // brute force internamente (5+ falhas em 10min do mesmo IP)
+            // — antes, essa lógica existia no AuditService mas nunca era
+            // chamada por ninguém.
+            auditService.logAuthFailure(ip, request.email());
+            loginLockoutService.registrarFalha(request.email());
 
-            return ResponseEntity.status(401).build();
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(ErrorResponse.of(
+                            "INVALID_CREDENTIALS",
+                            "Email ou senha inválidos.",
+                            "/api/v1/auth/login"
+                    ));
         }
     }
 
@@ -156,7 +175,7 @@ public class AuthController {
                     content = @Content)
     })
     @PostMapping("/refresh")
-    public ResponseEntity<AuthResponse> refresh(
+    public ResponseEntity<Object> refresh(
             @Valid @RequestBody RefreshRequest request,
             HttpServletRequest httpRequest
     ) {
@@ -168,7 +187,13 @@ public class AuthController {
             // Valida que é um refresh token válido e não expirado
             if (!jwtService.isRefreshTokenValid(token)) {
                 log.warn("Refresh token inválido ou expirado — ip: {}", ip);
-                return ResponseEntity.status(401).build();
+                return ResponseEntity
+                        .status(HttpStatus.UNAUTHORIZED)
+                        .body(ErrorResponse.of(
+                                "INVALID_REFRESH_TOKEN",
+                                "Refresh token inválido ou expirado.",
+                                "/api/v1/auth/refresh"
+                        ));
             }
 
             String email = jwtService.extractEmail(token);
@@ -180,7 +205,13 @@ public class AuthController {
 
             if (usuario == null) {
                 log.warn("Refresh token para usuário inexistente/inativo — ip: {}", ip);
-                return ResponseEntity.status(401).build();
+                return ResponseEntity
+                        .status(HttpStatus.UNAUTHORIZED)
+                        .body(ErrorResponse.of(
+                                "INVALID_REFRESH_TOKEN",
+                                "Refresh token inválido ou expirado.",
+                                "/api/v1/auth/refresh"
+                        ));
             }
 
             // Rotação de token — gera novo par completo
@@ -207,29 +238,17 @@ public class AuthController {
 
         } catch (Exception e) {
             log.warn("Erro ao processar refresh token — ip: {}", ip);
-            return ResponseEntity.status(401).build();
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body(ErrorResponse.of(
+                            "INVALID_REFRESH_TOKEN",
+                            "Refresh token inválido ou expirado.",
+                            "/api/v1/auth/refresh"
+                    ));
         }
     }
 
     // MÉTODOS AUXILIARES
-
-    private void registrarAudit(String usuarioHash, String endpoint,
-                                String metodo, int status,
-                                String ip, String acao, String detalhes) {
-        try {
-            auditLogRepository.save(AuditLog.builder()
-                    .usuarioHash(usuarioHash)
-                    .endpoint(endpoint)
-                    .metodoHttp(metodo)
-                    .statusResposta(status)
-                    .ipOrigem(ip)
-                    .acao(acao)
-                    .detalhes(detalhes)
-                    .build());
-        } catch (Exception e) {
-            log.error("Falha ao registrar audit log: {}", e.getMessage());
-        }
-    }
 
     /**
      * Mascara o email nos logs — exibe só o domínio.
