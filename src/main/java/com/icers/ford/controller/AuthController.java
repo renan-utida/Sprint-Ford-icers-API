@@ -9,6 +9,7 @@ import com.icers.ford.repository.UsuarioRepository;
 import com.icers.ford.security.JwtService;
 import com.icers.ford.service.AuditService;
 import com.icers.ford.service.LoginLockoutService;
+import com.icers.ford.util.IpResolver;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -42,6 +43,7 @@ public class AuthController {
     private final UsuarioRepository usuarioRepository;
     private final AuditService auditService;
     private final LoginLockoutService loginLockoutService;
+    private final IpResolver ipResolver;
 
     // Expiração do access token em segundos para o response (8h)
     private static final long ACCESS_TOKEN_EXPIRES_IN = 28800L;
@@ -70,7 +72,7 @@ public class AuthController {
             @Valid @RequestBody LoginRequest request,
             HttpServletRequest httpRequest
     ) {
-        String ip = extrairIp(httpRequest);
+        String ip = ipResolver.resolverIp(httpRequest);
 
         // Bloqueio por CONTA (não por IP — ver LoginLockoutService).
         // Checado antes de autenticar, pra não gastar verificação de
@@ -179,7 +181,7 @@ public class AuthController {
             @Valid @RequestBody RefreshRequest request,
             HttpServletRequest httpRequest
     ) {
-        String ip = extrairIp(httpRequest);
+        String ip = ipResolver.resolverIp(httpRequest);
 
         try {
             String token = request.refreshToken();
@@ -257,16 +259,5 @@ public class AuthController {
     private String mascararEmail(String email) {
         if (email == null || !email.contains("@")) return "***";
         return "***@" + email.substring(email.indexOf("@") + 1);
-    }
-
-    /**
-     * Extrai o IP real considerando proxies e load balancers.
-     */
-    private String extrairIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
     }
 }

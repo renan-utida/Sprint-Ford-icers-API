@@ -1,5 +1,6 @@
 package com.icers.ford.config;
 
+import com.icers.ford.util.IpResolver;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.ConsumptionProbe;
@@ -8,10 +9,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.lang.NonNull;
-import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -26,9 +25,11 @@ public class RateLimitFilter extends OncePerRequestFilter {
             new ConcurrentHashMap<>();
 
     private final int requestsPerMinute;
+    private final IpResolver ipResolver;
 
-    public RateLimitFilter(int requestsPerMinute) {
+    public RateLimitFilter(int requestsPerMinute, IpResolver ipResolver) {
         this.requestsPerMinute = requestsPerMinute;
+        this.ipResolver = ipResolver;
     }
 
     @Override
@@ -46,7 +47,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             return;
         }
 
-        String ip = extrairIp(request);
+        String ip = ipResolver.resolverIp(request);
         Bucket bucket = bucketsPorIp.computeIfAbsent(ip, this::criarBucket);
 
         ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
@@ -105,13 +106,5 @@ public class RateLimitFilter extends OncePerRequestFilter {
                 uri.startsWith("/v3/api-docs") ||
                 uri.startsWith("/error") ||
                 uri.equals("/");
-    }
-
-    private String extrairIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
     }
 }

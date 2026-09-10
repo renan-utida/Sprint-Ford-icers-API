@@ -19,6 +19,7 @@ import io.github.bucket4j.Bucket;
 import io.github.bucket4j.ConsumptionProbe;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -113,11 +114,43 @@ public class SpecService {
             );
 
             String confidenceGeral = calcularConfidenceGeral(campos);
-            salvarFicha(marca, modelo, versao, campos, confidenceGeral, usuario);
 
-            response = SpecResponse.fromLlm(
-                    marca, modelo, versao, campos, confidenceGeral
-            );
+            try {
+                salvarFicha(marca, modelo, versao, campos, confidenceGeral, usuario);
+                response = SpecResponse.fromLlm(
+                        marca, modelo, versao, campos, confidenceGeral
+                );
+            } catch (DataIntegrityViolationException e) {
+                // Corrida de concorrência: outra requisição para o MESMO
+                // veículo terminou de salvar entre o nosso check de cache
+                // (linha acima) e este insert — o índice único
+                // uk_sr_ficha_veiculo_ci (V8) rejeitou nosso insert.
+                // Em vez de propagar um 500 pro cliente, devolvemos a
+                // ficha que a "vencedora" da corrida já salvou — o
+                // resultado funcional é idêntico (specs do mesmo
+                // veículo), só sem duplicar linha nem mascarar o
+                // desperdício de uma segunda chamada ao LLM.
+                log.warn("Corrida de concorrência detectada ao salvar {} {} {} — " +
+                                "devolvendo ficha já salva por requisição concorrente",
+                        marca, modelo, versao);
+
+                FichaTecnica jaSalva = fichaTecnicaRepository
+                        .findFirstByMarcaIgnoreCaseAndModeloIgnoreCaseAndVersaoIgnoreCase(
+                                marca, modelo, versao
+                        )
+                        .orElseThrow(() -> e);
+
+                cacheHit = true;
+                List<CampoSpec> camposExistentes = parsearCamposJson(
+                        jaSalva.getCamposJson(), atributos
+                );
+                response = SpecResponse.fromCache(
+                        jaSalva.getMarca(), jaSalva.getModelo(), jaSalva.getVersao(),
+                        camposExistentes,
+                        jaSalva.getConfidenceGeral().name(),
+                        jaSalva.getVerificadoEm()
+                );
+            }
         }
 
         long tempoMs = System.currentTimeMillis() - inicio;

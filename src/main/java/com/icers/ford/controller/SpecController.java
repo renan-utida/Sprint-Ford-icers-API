@@ -9,7 +9,9 @@ import com.icers.ford.model.Usuario;
 import com.icers.ford.repository.UsuarioRepository;
 import com.icers.ford.service.AuditService;
 import com.icers.ford.service.ConfigService;
+import com.icers.ford.service.IdempotencyService;
 import com.icers.ford.service.SpecService;
+import com.icers.ford.util.IpResolver;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -30,6 +32,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Slf4j
 @RestController
@@ -42,7 +45,9 @@ public class SpecController {
     private final SpecService specService;
     private final AuditService auditService;
     private final ConfigService configService;
+    private final IdempotencyService idempotencyService;
     private final UsuarioRepository usuarioRepository;
+    private final IpResolver ipResolver;
 
     // POST /api/v1/specs/query
 
@@ -50,7 +55,10 @@ public class SpecController {
             summary = "Consultar especificações",
             description = "Consulta especificações técnicas de um veículo. " +
                     "Verifica o cache antes de chamar o LLM. " +
-                    "Retorna a ficha padronizada com confidence score por campo."
+                    "Retorna a ficha padronizada com confidence score por campo. " +
+                    "Aceita o header opcional Idempotency-Key: se a mesma chave for " +
+                    "reenviada (ex: retry após timeout de rede), devolve a resposta já " +
+                    "processada sem reprocessar nada."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Ficha técnica retornada com sucesso",
@@ -70,13 +78,27 @@ public class SpecController {
     @PreAuthorize("hasAnyRole('ANALYST', 'ADMIN')")
     public ResponseEntity<SpecResponse> query(
             @Valid @RequestBody SpecQueryRequest request,
+            @Parameter(description = "Chave opcional gerada pelo cliente — reenviar a " +
+                    "mesma chave devolve a resposta já processada, sem reprocessar")
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @AuthenticationPrincipal UserDetails userDetails,
             HttpServletRequest httpRequest
     ) {
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            Optional<SpecResponse> jaProcessada = idempotencyService.buscar(idempotencyKey);
+            if (jaProcessada.isPresent()) {
+                return ResponseEntity.ok(jaProcessada.get());
+            }
+        }
+
         Usuario usuario = resolverUsuario(userDetails.getUsername());
-        String ip = extrairIp(httpRequest);
+        String ip = ipResolver.resolverIp(httpRequest);
 
         SpecResponse response = specService.query(request, usuario, ip);
+
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            idempotencyService.salvar(idempotencyKey, response);
+        }
 
         return ResponseEntity.ok(response);
     }
@@ -209,7 +231,7 @@ public class SpecController {
             HttpServletRequest httpRequest
     ) {
         Usuario usuario = resolverUsuario(userDetails.getUsername());
-        String ip = extrairIp(httpRequest);
+        String ip = ipResolver.resolverIp(httpRequest);
 
         specService.deletarFicha(id);
 
@@ -301,13 +323,5 @@ public class SpecController {
                 .orElseThrow(() -> new RuntimeException(
                         "Usuário autenticado não encontrado no banco"
                 ));
-    }
-
-    private String extrairIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
     }
 }

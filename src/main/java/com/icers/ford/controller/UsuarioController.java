@@ -9,6 +9,7 @@ import com.icers.ford.model.Usuario;
 import com.icers.ford.repository.UsuarioRepository;
 import com.icers.ford.service.AuditService;
 import com.icers.ford.service.UsuarioService;
+import com.icers.ford.util.IpResolver;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -43,6 +44,7 @@ public class UsuarioController {
     private final UsuarioService usuarioService;
     private final UsuarioRepository usuarioRepository;
     private final AuditService auditService;
+    private final IpResolver ipResolver;
 
     @Operation(summary = "Listar usuários [ADMIN]",
             description = "Retorna todos os usuários cadastrados, ativos e desativados.")
@@ -96,7 +98,7 @@ public class UsuarioController {
             HttpServletRequest httpRequest
     ) {
         Usuario admin = resolverUsuario(userDetails.getUsername());
-        String ip = extrairIp(httpRequest);
+        String ip = ipResolver.resolverIp(httpRequest);
 
         UsuarioResponse criado = usuarioService.criar(request);
 
@@ -132,7 +134,7 @@ public class UsuarioController {
             HttpServletRequest httpRequest
     ) {
         Usuario admin = resolverUsuario(userDetails.getUsername());
-        String ip = extrairIp(httpRequest);
+        String ip = ipResolver.resolverIp(httpRequest);
 
         UsuarioResponse atualizado = usuarioService.atualizar(id, request);
 
@@ -164,7 +166,7 @@ public class UsuarioController {
             HttpServletRequest httpRequest
     ) {
         Usuario admin = resolverUsuario(userDetails.getUsername());
-        String ip = extrairIp(httpRequest);
+        String ip = ipResolver.resolverIp(httpRequest);
 
         usuarioService.desativar(id, admin.getId());
 
@@ -192,7 +194,7 @@ public class UsuarioController {
             HttpServletRequest httpRequest
     ) {
         Usuario admin = resolverUsuario(userDetails.getUsername());
-        String ip = extrairIp(httpRequest);
+        String ip = ipResolver.resolverIp(httpRequest);
 
         usuarioService.reativar(id);
 
@@ -229,7 +231,7 @@ public class UsuarioController {
             HttpServletRequest httpRequest
     ) {
         Usuario admin = resolverUsuario(userDetails.getUsername());
-        String ip = extrairIp(httpRequest);
+        String ip = ipResolver.resolverIp(httpRequest);
 
         if (admin.getId().equals(id)) {
             throw new AutoAnonimizacaoException();
@@ -250,12 +252,5 @@ public class UsuarioController {
                 .orElseThrow(() -> new RuntimeException(
                         "Usuário autenticado não encontrado no banco"
                 ));
-    }
-
-    private String extrairIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        return forwarded != null && !forwarded.isBlank()
-                ? forwarded.split(",")[0].trim()
-                : request.getRemoteAddr();
     }
 }

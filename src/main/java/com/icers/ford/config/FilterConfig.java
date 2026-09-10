@@ -1,5 +1,6 @@
 package com.icers.ford.config;
 
+import com.icers.ford.util.IpResolver;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -12,6 +13,12 @@ public class FilterConfig {
     @Value("${ratelimit.ip.requests-per-minute:60}")
     private int requestsPerMinute;
 
+    private final IpResolver ipResolver;
+
+    public FilterConfig(IpResolver ipResolver) {
+        this.ipResolver = ipResolver;
+    }
+
     /**
      * Registra o RateLimitFilter com prioridade alta —
      * executa antes do JwtAuthFilter e do Spring Security.
@@ -21,7 +28,7 @@ public class FilterConfig {
     @Bean
     public FilterRegistrationBean<RateLimitFilter> rateLimitFilter() {
         FilterRegistrationBean<RateLimitFilter> registration =
-                new FilterRegistrationBean<>(new RateLimitFilter(requestsPerMinute));
+                new FilterRegistrationBean<>(new RateLimitFilter(requestsPerMinute, ipResolver));
         registration.addUrlPatterns("/api/*");
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         return registration;
