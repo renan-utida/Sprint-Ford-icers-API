@@ -41,6 +41,14 @@ public class Config {
     @Column(name = "atributos_padrao", nullable = false)
     private String atributosPadraoJson;
 
+    /**
+     * Dias até uma ficha ser considerada desatualizada — 2 a 31,
+     * validado no ConfigService antes de salvar. Fichas já criadas
+     * não são afetadas por uma mudança aqui (ver FichaTecnica).
+     */
+    @Column(name = "intervalo_reverificacao_dias", nullable = false)
+    private Integer intervaloReverificacaoDias;
+
     @Column(name = "atualizado_em", nullable = false)
     private LocalDateTime atualizadoEm;
 

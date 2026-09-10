@@ -29,8 +29,16 @@ public class ConfigService {
      */
     private static final List<String> FALLBACK_PADRAO = List.of(
             "motor", "potencia", "torque", "transmissao",
-            "tracao", "preco", "consumo", "dimensoes"
+            "tracao", "preco", "consumo", "dimensoes",
+            "modos_volante", "modos_escapamento", "modos_amortecedor"
     );
+
+    /**
+     * Fallback do intervalo de reverificação — mesmo racional do
+     * FALLBACK_PADRAO acima, só entra em ação se a tabela estiver
+     * vazia por algum motivo.
+     */
+    private static final int FALLBACK_INTERVALO_DIAS = 15;
 
     /**
      * Usado pelo ChatService — retorna só a lista, sem metadado.
@@ -43,8 +51,20 @@ public class ConfigService {
     }
 
     /**
+     * Usado pelo SpecService ao criar uma ficha nova — o valor GLOBAL
+     * atual, que fica então travado naquela ficha específica (ver
+     * FichaTecnica.intervaloReverificacaoDias).
+     */
+    @Transactional(readOnly = true)
+    public int getIntervaloReverificacaoDias() {
+        return configRepository.findFirstByOrderByIdAsc()
+                .map(Config::getIntervaloReverificacaoDias)
+                .orElse(FALLBACK_INTERVALO_DIAS);
+    }
+
+    /**
      * Usado pelo endpoint GET/PUT de config — retorna com metadado
-     * (data da última atualização).
+     * (data da última alteração).
      */
     @Transactional(readOnly = true)
     public ConfigResponse getConfig() {
@@ -52,15 +72,24 @@ public class ConfigService {
                 .orElseThrow(() -> new IllegalStateException(
                         "Configuração do sistema não inicializada — verifique a migration V6"
                 ));
-        return ConfigResponse.of(parseAtributos(config), config.getAtualizadoEm());
+        return ConfigResponse.of(
+                parseAtributos(config),
+                config.getIntervaloReverificacaoDias(),
+                config.getAtualizadoEm()
+        );
     }
 
     /**
-     * Atualiza a lista de atributos padrão. Só ADMIN pode chamar isso
-     * (garantido pelo @PreAuthorize no controller, não aqui).
+     * Atualiza a lista de atributos padrão e o intervalo de
+     * reverificação. Só ADMIN pode chamar isso (garantido pelo
+     * @PreAuthorize no controller, não aqui). A validação de 2-31
+     * dias já aconteceu no @Valid do ConfigRequest, antes de chegar
+     * aqui.
      */
     @Transactional
-    public ConfigResponse atualizarAtributosPadrao(List<String> novosAtributos, Usuario admin) {
+    public ConfigResponse atualizarConfig(List<String> novosAtributos,
+                                          Integer novoIntervaloDias,
+                                          Usuario admin) {
         Config config = configRepository.findFirstByOrderByIdAsc()
                 .orElseGet(Config::new);
 
@@ -69,20 +98,22 @@ public class ConfigService {
 
             String json = objectMapper.writeValueAsString(novosAtributos);
             config.setAtributosPadraoJson(json);
+            config.setIntervaloReverificacaoDias(novoIntervaloDias);
             config.setAtualizadoPor(admin);
             // Setado explicitamente aqui — @PreUpdate só roda quando o
             // Hibernate executa o UPDATE de fato (geralmente no flush,
             // no fim da transação), não no momento do save() em si. Sem
             // isso, o valor devolvido na resposta fica uma leitura
-            // atrasado em relação ao que efetivamente foi persistido.
+            // atrasada em relação ao que efetivamente foi persistido.
             config.setAtualizadoEm(agora);
 
             configRepository.save(config);
 
-            log.info("[AUDITORIA] Configuração atualizada — atributos_padrao: {} | por: {}",
-                    novosAtributos, admin.getEmail());
+            log.info("[AUDITORIA] Configuração atualizada — atributos_padrao: {} | " +
+                            "intervalo_reverificacao_dias: {} | por: {}",
+                    novosAtributos, novoIntervaloDias, admin.getEmail());
 
-            return ConfigResponse.of(novosAtributos, agora);
+            return ConfigResponse.of(novosAtributos, novoIntervaloDias, agora);
 
         } catch (Exception e) {
             log.error("Falha ao atualizar configuração: {}", e.getMessage());

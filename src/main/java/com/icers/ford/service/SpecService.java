@@ -24,11 +24,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 @Slf4j
 @Service
@@ -37,6 +41,7 @@ public class SpecService {
     private final FichaTecnicaRepository fichaTecnicaRepository;
     private final HistoricoConsultaRepository historicoRepository;
     private final LlmClient llmClient;
+    private final ConfigService configService;
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
     private final int requestsPerMinute;
@@ -49,6 +54,7 @@ public class SpecService {
             FichaTecnicaRepository fichaTecnicaRepository,
             HistoricoConsultaRepository historicoRepository,
             LlmClient llmClient,
+            ConfigService configService,
             AuditService auditService,
             ObjectMapper objectMapper,
             @Value("${ratelimit.user.requests-per-minute:60}") int requestsPerMinute
@@ -56,6 +62,7 @@ public class SpecService {
         this.fichaTecnicaRepository = fichaTecnicaRepository;
         this.historicoRepository = historicoRepository;
         this.llmClient = llmClient;
+        this.configService = configService;
         this.auditService = auditService;
         this.objectMapper = objectMapper;
         this.requestsPerMinute = requestsPerMinute;
@@ -93,32 +100,137 @@ public class SpecService {
         SpecResponse response;
 
         if (cacheHit) {
-            log.info("Cache hit — {} {} {}", marca, modelo, versao);
             FichaTecnica ficha = cache.get();
-            List<CampoSpec> campos = parsearCamposJson(
-                    ficha.getCamposJson(), atributos
+
+            // Pega TODOS os campos já salvos (sem filtro), pra saber
+            // o que realmente já temos, não só o que foi pedido agora
+            List<CampoSpec> camposCache = parsearCamposJson(
+                    ficha.getCamposJson(), List.of()
             );
-            response = SpecResponse.fromCache(
-                    ficha.getMarca(), ficha.getModelo(), ficha.getVersao(),
-                    campos,
-                    ficha.getConfidenceGeral().name(),
+
+            List<String> atributosFaltando = atributos.stream()
+                    .filter(a -> camposCache.stream()
+                            .noneMatch(c -> a.equalsIgnoreCase(c.campo())))
+                    .toList();
+
+            boolean expirada = LocalDateTime.now().isAfter(
                     ficha.getVerificadoEm()
+                            .plusDays(ficha.getIntervaloReverificacaoDias())
             );
+
+            if (!expirada && atributosFaltando.isEmpty()) {
+                // Cache tem tudo que foi pedido e ainda está dentro do
+                // prazo — hit de verdade, sem chamar o Gemini
+                log.info("Cache hit — {} {} {}", marca, modelo, versao);
+                List<CampoSpec> campos = filtrarCampos(camposCache, atributos);
+                response = SpecResponse.fromCache(
+                        ficha.getMarca(), ficha.getModelo(), ficha.getVersao(),
+                        campos,
+                        ficha.getConfidenceGeral().name(),
+                        ficha.getVerificadoEm()
+                );
+
+            } else if (expirada) {
+                // Ficha passou do prazo de reverificação. Reverifica
+                // TUDO que já tinha, mais qualquer atributo novo que
+                // também esteja faltando, numa única chamada ao
+                // Gemini — SUBSTITUI o conteúdo da ficha (não mescla,
+                // diferente do cache parcial abaixo), porque o
+                // objetivo aqui é confirmar/atualizar o que já existe,
+                // não só completar lacuna.
+                //
+                // O intervalo desta ficha é RENOVADO pro valor global
+                // atual do ADMIN neste momento — se o ADMIN mudou a
+                // configuração depois que esta ficha foi criada, ela
+                // "alcança" o valor novo na primeira reverificação daqui
+                // pra frente, em vez de ficar travada pra sempre no
+                // valor que tinha quando foi criada.
+                int intervaloAnterior = ficha.getIntervaloReverificacaoDias();
+                int intervaloAtual = configService.getIntervaloReverificacaoDias();
+                log.info("Ficha expirada (mais de {} dias) — reverificando {} {} {} " +
+                                "(intervalo renovado: {} -> {})",
+                        intervaloAnterior, marca, modelo, versao,
+                        intervaloAnterior, intervaloAtual);
+
+                cacheHit = false;
+
+                List<String> nomesJaConhecidos = camposCache.stream()
+                        .map(CampoSpec::campo)
+                        .toList();
+                List<String> atributosParaReverificar = Stream.concat(
+                                nomesJaConhecidos.stream(), atributosFaltando.stream())
+                        .distinct()
+                        .toList();
+
+                List<CampoSpec> camposFrescos = llmClient.consultarEspecificacoes(
+                        marca, modelo, versao, atributosParaReverificar
+                );
+
+                String confidenceGeral = calcularConfidenceGeral(camposFrescos);
+                ficha.setIntervaloReverificacaoDias(intervaloAtual);
+                atualizarFicha(ficha, camposFrescos, confidenceGeral);
+
+                List<CampoSpec> camposResposta = filtrarCampos(camposFrescos, atributos);
+                response = SpecResponse.fromLlm(
+                        marca, modelo, versao, camposResposta, confidenceGeral
+                );
+
+            } else {
+                // Não expirada, mas faltam atributos novos — cache
+                // PARCIAL (Nível 2). Busca SÓ o que falta no Gemini,
+                // mescla com o que já existia, e atualiza a ficha —
+                // não cria uma linha nova, e não descarta o que já
+                // estava certo.
+                log.info("Cache parcial — faltam {} atributo(s) para {} {} {}, buscando no LLM",
+                        atributosFaltando.size(), marca, modelo, versao);
+
+                cacheHit = false; // precisou chamar o LLM, não foi hit puro
+
+                List<CampoSpec> camposNovos = llmClient.consultarEspecificacoes(
+                        marca, modelo, versao, atributosFaltando
+                );
+
+                List<CampoSpec> camposMesclados = new ArrayList<>(camposCache);
+                camposMesclados.addAll(camposNovos);
+
+                String confidenceGeral = calcularConfidenceGeral(camposMesclados);
+                atualizarFicha(ficha, camposMesclados, confidenceGeral);
+
+                List<CampoSpec> camposResposta = filtrarCampos(camposMesclados, atributos);
+                response = SpecResponse.fromLlm(
+                        marca, modelo, versao, camposResposta, confidenceGeral
+                );
+            }
         } else {
             // Cache miss — chama o LLM
             log.info("Cache miss — chamando LLM para {} {} {}",
                     marca, modelo, versao);
 
+            // Busca pelo menos o conjunto padrão de atributos, mesmo
+            // que o usuário tenha pedido menos — garante que a
+            // PRIMEIRA consulta de um veículo já deixa o cache
+            // completo o bastante pra qualquer consulta futura (do
+            // mesmo veículo, atributos diferentes dentro do padrão)
+            // não precisar voltar no Gemini à toa. A resposta pra
+            // este usuário continua mostrando só o que ele pediu.
+            List<String> atributosPadrao = configService.getAtributosPadrao();
+            List<String> atributosParaBuscar = Stream.concat(
+                            atributos.stream(), atributosPadrao.stream())
+                    .distinct()
+                    .toList();
+
             List<CampoSpec> campos = llmClient.consultarEspecificacoes(
-                    marca, modelo, versao, atributos
+                    marca, modelo, versao, atributosParaBuscar
             );
 
             String confidenceGeral = calcularConfidenceGeral(campos);
 
             try {
                 salvarFicha(marca, modelo, versao, campos, confidenceGeral, usuario);
+
+                List<CampoSpec> camposResposta = filtrarCampos(campos, atributos);
                 response = SpecResponse.fromLlm(
-                        marca, modelo, versao, campos, confidenceGeral
+                        marca, modelo, versao, camposResposta, confidenceGeral
                 );
             } catch (DataIntegrityViolationException e) {
                 // Corrida de concorrência: outra requisição para o MESMO
@@ -169,7 +281,9 @@ public class SpecService {
 
     /**
      * Busca ficha técnica armazenada sem chamar o LLM.
-     * Lança FichaNaoEncontradaException se não existir — vira 404.
+     * Lança FichaNaoEncontradaException se não existir — vira 404,
+     * com sugestões de outras versões do mesmo marca+modelo já
+     * cacheadas, se existir alguma.
      */
     @Transactional(readOnly = true)
     public SpecResponse findByVeiculo(String marca, String modelo,
@@ -178,9 +292,15 @@ public class SpecService {
                 .findFirstByMarcaIgnoreCaseAndModeloIgnoreCaseAndVersaoIgnoreCase(
                         marca, modelo, versao
                 )
-                .orElseThrow(() ->
-                        new FichaNaoEncontradaException(marca, modelo, versao)
-                );
+                .orElseThrow(() -> {
+                    List<String> sugestoes = fichaTecnicaRepository
+                            .findByMarcaIgnoreCaseAndModeloIgnoreCase(marca, modelo)
+                            .stream()
+                            .map(f -> f.getMarca() + " " + f.getModelo() + " " + f.getVersao())
+                            .limit(5)
+                            .toList();
+                    return new FichaNaoEncontradaException(marca, modelo, versao, sugestoes);
+                });
 
         return toSpecResponse(ficha);
     }
@@ -320,12 +440,43 @@ public class SpecService {
                     .camposJson(camposJson)
                     .confidenceGeral(ConfidenceLevel.valueOf(confidenceGeral))
                     .criadoPor(usuario)
+                    // Copia o valor GLOBAL atual e trava nesta ficha —
+                    // se o ADMIN mudar o valor global depois, esta
+                    // ficha específica não é afetada.
+                    .intervaloReverificacaoDias(configService.getIntervaloReverificacaoDias())
                     .build();
             fichaTecnicaRepository.save(ficha);
             log.info("Ficha salva no banco — {} {} {}",
                     marca, modelo, versao);
         } catch (JsonProcessingException e) {
             log.error("Falha ao serializar campos: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Atualiza uma ficha JÁ EXISTENTE com campos mesclados (cache
+     * antigo + atributos novos buscados no Gemini) — diferente de
+     * salvarFicha, que sempre cria uma linha nova. Usado no fluxo de
+     * "cache parcial" (Nível 2): a ficha já existe, só precisava de
+     * mais atributos.
+     * <p>
+     * verificadoEm é setado explicitamente aqui (não só @PreUpdate,
+     * que só toca atualizadoEm) — os atributos novos acabaram de ser
+     * verificados de verdade contra o Gemini agora, então faz sentido
+     * refletir isso.
+     */
+    private void atualizarFicha(FichaTecnica ficha, List<CampoSpec> camposMesclados,
+                                String confidenceGeral) {
+        try {
+            String camposJson = objectMapper.writeValueAsString(camposMesclados);
+            ficha.setCamposJson(camposJson);
+            ficha.setConfidenceGeral(ConfidenceLevel.valueOf(confidenceGeral));
+            ficha.setVerificadoEm(LocalDateTime.now());
+            fichaTecnicaRepository.save(ficha);
+            log.info("Ficha atualizada no banco (atributos novos mesclados) — {} {} {}",
+                    ficha.getMarca(), ficha.getModelo(), ficha.getVersao());
+        } catch (JsonProcessingException e) {
+            log.error("Falha ao serializar campos mesclados: {}", e.getMessage());
         }
     }
 
@@ -337,17 +488,7 @@ public class SpecService {
                     objectMapper.getTypeFactory()
                             .constructCollectionType(List.class, CampoSpec.class)
             );
-
-            if (atributosFiltro == null || atributosFiltro.isEmpty()) {
-                return todos;
-            }
-
-            return atributosFiltro.stream()
-                    .map(attr -> todos.stream()
-                            .filter(c -> attr.equalsIgnoreCase(c.campo()))
-                            .findFirst()
-                            .orElse(CampoSpec.naoEncontrado(attr)))
-                    .toList();
+            return filtrarCampos(todos, atributosFiltro);
 
         } catch (Exception e) {
             log.error("Falha ao parsear campos JSON: {}", e.getMessage());
@@ -356,6 +497,27 @@ public class SpecService {
                     .map(CampoSpec::naoEncontrado).toList()
                     : List.of();
         }
+    }
+
+    /**
+     * Filtra uma lista de campos já em memória pelos atributos
+     * pedidos — mesma lógica que parsearCamposJson usa depois de
+     * desserializar, extraída aqui pra ser reaproveitada também na
+     * primeira consulta (cache miss), quando buscamos mais atributos
+     * do Gemini do que o usuário pediu (ver query()), mas a resposta
+     * devolvida só deve mostrar o que foi de fato solicitado.
+     */
+    private List<CampoSpec> filtrarCampos(List<CampoSpec> todos,
+                                          List<String> atributosFiltro) {
+        if (atributosFiltro == null || atributosFiltro.isEmpty()) {
+            return todos;
+        }
+        return atributosFiltro.stream()
+                .map(attr -> todos.stream()
+                        .filter(c -> attr.equalsIgnoreCase(c.campo()))
+                        .findFirst()
+                        .orElse(CampoSpec.naoEncontrado(attr)))
+                .toList();
     }
 
     private void registrarHistorico(Usuario usuario, String marca,
@@ -408,30 +570,120 @@ public class SpecService {
     }
 
     /**
+     * Campos com valor numérico isolado e comparável, com a(s)
+     * unidade(s) que aparece(m) no texto (ex: "397 cv @ 5.650 rpm") e
+     * a direção de "quem vence" — maior potência/torque/consumo é
+     * melhor, mas menor tempo de aceleração e menor preço são
+     * melhores.
+     * <p>
+     * Alguns campos aceitam mais de uma unidade — torque, por
+     * exemplo, já veio como "Nm" e como "kgfm" em respostas reais do
+     * Gemini (kgfm é comum em fichas técnicas brasileiras). Cada
+     * unidade reconhecida tem seu próprio multiplicador pra converter
+     * pra uma base comum (Nm) antes de comparar — sem isso, "55 kgfm"
+     * e "583 Nm" pareceriam números direto comparáveis quando não são.
+     * As unidades são tentadas na ordem declarada; a primeira que
+     * bater no texto é usada (por isso Nm vem antes de kgfm — é a
+     * mais comum nas respostas que já vimos).
+     * <p>
+     * Campos fora desta lista (motor, transmissao, tracao,
+     * amortecedores, modos_conducao, farois, rodas_pneus, dimensoes,
+     * modos_volante, modos_escapamento, modos_amortecedor) são texto
+     * descritivo ou multivalorado (dimensoes tem 3 números na mesma
+     * string — comprimento x largura x altura — sem uma direção única
+     * de "melhor"), não um número isolado com direção objetiva —
+     * tentar comparar produziria um resultado tão arbitrário quanto o
+     * bug antigo (concatenar todos os dígitos do texto). Para esses,
+     * o vencedor é sempre "N/A".
+     */
+    private enum CampoNumerico {
+        POTENCIA("potencia", true,
+                unidade("(?i)(\\d+(?:[.,]\\d+)?)\\s*cv", 1.0)),
+        TORQUE("torque", true,
+                unidade("(?i)(\\d+(?:[.,]\\d+)?)\\s*nm", 1.0),
+                // 1 kgf·m ≈ 9,80665 Nm
+                unidade("(?i)(\\d+(?:[.,]\\d+)?)\\s*kgf\\s*\\.?\\s*m", 9.80665)),
+        ACELERACAO("aceleracao", false,
+                unidade("(?i)(\\d+(?:[.,]\\d+)?)\\s*segundos", 1.0)),
+        PRECO("preco", false,
+                unidade("(?i)r\\$\\s*(\\d{1,3}(?:\\.\\d{3})*(?:,\\d+)?)", 1.0)),
+        // Formato ainda não confirmado com dado real do Gemini — km/l
+        // é o padrão brasileiro, mas pode precisar de ajuste assim que
+        // virmos a primeira resposta real com esse atributo.
+        CONSUMO("consumo", true,
+                unidade("(?i)(\\d+(?:[.,]\\d+)?)\\s*km/l", 1.0));
+
+        private final String nomeCampo;
+        private final boolean maiorVence;
+        private final List<UnidadeReconhecida> unidades;
+
+        CampoNumerico(String nomeCampo, boolean maiorVence, UnidadeReconhecida... unidades) {
+            this.nomeCampo = nomeCampo;
+            this.maiorVence = maiorVence;
+            this.unidades = List.of(unidades);
+        }
+
+        private static UnidadeReconhecida unidade(String regex, double multiplicadorParaBase) {
+            return new UnidadeReconhecida(Pattern.compile(regex), multiplicadorParaBase);
+        }
+
+        static CampoNumerico doCampo(String campo) {
+            for (CampoNumerico c : values()) {
+                if (c.nomeCampo.equalsIgnoreCase(campo)) return c;
+            }
+            return null;
+        }
+
+        Double extrair(String valor) {
+            if (valor == null) return null;
+            for (UnidadeReconhecida u : unidades) {
+                Matcher m = u.padrao().matcher(valor);
+                if (m.find()) {
+                    String numero = m.group(1).replace(".", "").replace(",", ".");
+                    try {
+                        return Double.parseDouble(numero) * u.multiplicador();
+                    } catch (NumberFormatException e) {
+                        return null;
+                    }
+                }
+            }
+            return null;
+        }
+
+        private record UnidadeReconhecida(Pattern padrao, double multiplicador) {}
+    }
+
+    /**
      * Determina o vencedor de um atributo entre dois veículos.
+     * "N/A" sempre que a comparação não for possível ou não fizer
+     * sentido — nunca declara vencedor por eliminação (dado ausente
+     * de um lado não torna o outro automaticamente "melhor").
      */
     private String determinarVencedor(CampoSpec campo1, CampoSpec campo2,
                                       String nomeVeiculo1,
                                       String nomeVeiculo2) {
-        if (campo1 == null || campo1.valor() == null) return nomeVeiculo2;
-        if (campo2 == null || campo2.valor() == null) return nomeVeiculo1;
-
-        try {
-            double v1 = extrairNumero(campo1.valor());
-            double v2 = extrairNumero(campo2.valor());
-            if (v1 > v2) return nomeVeiculo1;
-            if (v2 > v1) return nomeVeiculo2;
-            return "EMPATE";
-        } catch (NumberFormatException e) {
+        if (campo1 == null || campo2 == null
+                || campo1.valor() == null || campo2.valor() == null) {
             return "N/A";
         }
-    }
 
-    private double extrairNumero(String valor) {
-        String numeroStr = valor.replaceAll("[^0-9.,]", "")
-                .replace(",", ".");
-        if (numeroStr.isBlank()) throw new NumberFormatException();
-        return Double.parseDouble(numeroStr);
+        CampoNumerico config = CampoNumerico.doCampo(campo1.campo());
+        if (config == null) {
+            return "N/A";
+        }
+
+        Double v1 = config.extrair(campo1.valor());
+        Double v2 = config.extrair(campo2.valor());
+        if (v1 == null || v2 == null) {
+            return "N/A";
+        }
+
+        if (v1.doubleValue() == v2.doubleValue()) {
+            return "EMPATE";
+        }
+
+        boolean venceV1 = config.maiorVence ? v1 > v2 : v1 < v2;
+        return venceV1 ? nomeVeiculo1 : nomeVeiculo2;
     }
 
     private List<String> sanitizarAtributos(List<String> atributos) {

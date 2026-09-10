@@ -62,6 +62,17 @@ public class FichaTecnica {
     @Column(name = "verificado_em", nullable = false)
     private LocalDateTime verificadoEm;
 
+    /**
+     * Cópia do valor global de sr_config.intervalo_reverificacao_dias
+     * no momento em que ESTA ficha foi criada ou reverificada pela
+     * última vez. Uma mudança do ADMIN no valor global não afeta
+     * fichas já existentes imediatamente — mas na PRÓXIMA vez que
+     * cada uma for reverificada (ao expirar), ela adota o valor
+     * global atual daquele momento (ver SpecService.query()).
+     */
+    @Column(name = "intervalo_reverificacao_dias", nullable = false)
+    private Integer intervaloReverificacaoDias;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "criado_por", nullable = false)
     private Usuario criadoPor;

@@ -43,7 +43,17 @@ public record ErrorResponse(
                 example = "{\"marca\": \"Marca deve conter apenas letras, espaços e hífens\"}"
         )
         @JsonProperty("campos_invalidos")
-        Map<String, String> camposInvalidos
+        Map<String, String> camposInvalidos,
+
+        @Schema(
+                description = "Veículos similares já disponíveis no banco (mesmo " +
+                        "marca+modelo, versão diferente). Presente apenas no 404 de " +
+                        "veículo não encontrado, quando existir alguma sugestão.",
+                nullable = true,
+                example = "[\"Ford Ranger XLT\", \"Ford Ranger Limited\"]"
+        )
+        @JsonProperty("sugestoes_similares")
+        List<String> sugestoesSimilares
 ) {
     /**
      * Erro genérico — sem detalhes de campos
@@ -56,6 +66,7 @@ public record ErrorResponse(
                 mensagem,
                 LocalDateTime.now(),
                 endpoint,
+                null,
                 null
         );
     }
@@ -70,7 +81,8 @@ public record ErrorResponse(
                 "Um ou mais campos estão inválidos",
                 LocalDateTime.now(),
                 endpoint,
-                camposInvalidos
+                camposInvalidos,
+                null
         );
     }
 
@@ -79,6 +91,22 @@ public record ErrorResponse(
      */
     public static ErrorResponse notFound(String mensagem, String endpoint) {
         return of("NOT_FOUND", mensagem, endpoint);
+    }
+
+    /**
+     * Erro 404 — veículo não encontrado, com sugestões de veículos
+     * similares já disponíveis no banco
+     */
+    public static ErrorResponse notFoundComSugestoes(String mensagem, String endpoint,
+                                                     List<String> sugestoesSimilares) {
+        return new ErrorResponse(
+                "NOT_FOUND",
+                mensagem,
+                LocalDateTime.now(),
+                endpoint,
+                null,
+                sugestoesSimilares
+        );
     }
 
     /**

@@ -45,6 +45,15 @@ public interface FichaTecnicaRepository extends JpaRepository<FichaTecnica, Long
     List<FichaTecnica> findByMarcaIgnoreCaseOrderByCriadoEmDesc(String marca);
 
     /**
+     * Busca outras versões já cacheadas do mesmo marca+modelo — usado
+     * para sugerir alternativas quando o veículo exato pedido não
+     * existe (404 de findByVeiculo).
+     */
+    List<FichaTecnica> findByMarcaIgnoreCaseAndModeloIgnoreCase(
+            String marca, String modelo
+    );
+
+    /**
      * Conta quantas fichas existem para um modelo — métrica de cobertura
      */
     long countByModeloIgnoreCase(String modelo);

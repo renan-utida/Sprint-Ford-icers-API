@@ -30,11 +30,14 @@ COMMENT ON TABLE  sr_config                  IS 'Configurações editáveis do s
 COMMENT ON COLUMN sr_config.atributos_padrao IS 'JSON com array de strings — atributos usados quando o chat não identifica nenhum na mensagem do usuário';
 COMMENT ON COLUMN sr_config.atualizado_por   IS 'FK para sr_usuarios — sempre um ADMIN, único perfil autorizado a alterar';
 
--- Linha única com os valores padrão atuais (os mesmos que já estavam
--- hardcoded em ChatService.ATRIBUTOS_PADRAO)
+-- Linha única com os valores padrão atuais — lista completa dos 16
+-- atributos padrão do SpecRadar (os 8 originais hardcoded em
+-- ChatService + os 5 usados no vencedor do compare + os 3 novos do
+-- brief oficial da Ford: modos_volante, modos_escapamento,
+-- modos_amortecedor)
 INSERT INTO sr_config (atributos_padrao, atualizado_por)
 VALUES (
-   '["motor","potencia","torque","transmissao","tracao","preco","consumo","dimensoes"]',
+   '["motor","potencia","torque","transmissao","tracao","amortecedores","aceleracao","modos_conducao","farois","rodas_pneus","preco","consumo","dimensoes","modos_volante","modos_escapamento","modos_amortecedor"]',
    (SELECT id FROM sr_usuarios WHERE email = 'admin@specradar.com')
 );
 

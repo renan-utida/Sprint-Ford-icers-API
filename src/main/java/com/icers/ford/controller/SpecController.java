@@ -287,8 +287,8 @@ public class SpecController {
     ) {
         Usuario admin = resolverUsuario(userDetails.getUsername());
 
-        ConfigResponse response = configService.atualizarAtributosPadrao(
-                request.atributosPadrao(), admin
+        ConfigResponse response = configService.atualizarConfig(
+                request.atributosPadrao(), request.intervaloReverificacaoDias(), admin
         );
 
         return ResponseEntity.ok(response);

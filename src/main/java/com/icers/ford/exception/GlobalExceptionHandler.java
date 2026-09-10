@@ -90,9 +90,10 @@ public class GlobalExceptionHandler {
 
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
-                .body(ErrorResponse.notFound(
+                .body(ErrorResponse.notFoundComSugestoes(
                         ex.getMessage(),
-                        request.getRequestURI()
+                        request.getRequestURI(),
+                        ex.getSugestoesSimilares()
                 ));
     }
 
