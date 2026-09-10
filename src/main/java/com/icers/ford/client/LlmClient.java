@@ -172,8 +172,13 @@ public class LlmClient {
 
     /**
      * Parseia o JSON retornado pelo Gemini para lista de CampoSpec.
-     * Se o parse falhar, retorna todos os campos como NAO_ENCONTRADO
-     * em vez de lançar exceção — garante resposta sempre no formato correto.
+     * Se o JSON vier malformado/incompleto (ex: resposta cortada por
+     * instabilidade do Gemini), lança LlmUnavailableException — o
+     * chamador NUNCA deve tratar isso como "consulta bem-sucedida,
+     * mas sem dados". Antes, esse catch devolvia tudo como
+     * NAO_ENCONTRADO silenciosamente, o que fazia o SpecService achar
+     * que era uma resposta válida e SALVAR essa ficha vazia no banco
+     * — poluindo o cache pra sempre com um erro pontual e temporário.
      */
     @SuppressWarnings("unchecked")
     private List<CampoSpec> parsearResposta(String textoJson,
@@ -229,12 +234,14 @@ public class LlmClient {
 
             return campos;
 
+        } catch (LlmUnavailableException e) {
+            throw e;
         } catch (Exception e) {
-            log.error("Falha ao parsear resposta do Gemini: {}", e.getMessage());
-            // Fallback seguro — retorna tudo como NAO_ENCONTRADO
-            return atributosEsperados.stream()
-                    .map(CampoSpec::naoEncontrado)
-                    .toList();
+            log.error("Falha ao parsear resposta do Gemini (JSON malformado/incompleto): {}",
+                    e.getMessage());
+            throw new LlmUnavailableException(
+                    "Resposta do serviço externo veio malformada", e
+            );
         }
     }
 
