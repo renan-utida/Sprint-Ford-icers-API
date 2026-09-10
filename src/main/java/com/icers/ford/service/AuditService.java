@@ -4,11 +4,13 @@ import com.icers.ford.model.AuditLog;
 import com.icers.ford.repository.AuditLogRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.LocalDateTime;
 
 @Slf4j
@@ -17,6 +19,9 @@ import java.time.LocalDateTime;
 public class AuditService {
 
     private final AuditLogRepository auditLogRepository;
+
+    @Value("${pseudonymization.salt}")
+    private String pseudonymizationSalt;
 
     // Limite de falhas de autenticação antes de logar como ERROR
     private static final int LIMITE_FALHAS_AUTH = 5;
@@ -129,22 +134,35 @@ public class AuditService {
     }
 
     /**
-     * Gera hash SHA-256 do ID do usuário.
-     * Rastreável para auditoria, mas não expõe email ou dados pessoais.
+     * Gera pseudônimo do ID do usuário via HMAC-SHA256 com salt secreto.
+     * <p>
+     * Por que HMAC e não SHA-256 puro (como era antes): IDs de usuário
+     * são inteiros sequenciais pequenos (1, 2, 3...) — um SHA-256 sem
+     * chave é trivialmente reversível por força bruta (basta hashear
+     * 1, 2, 3... até bater), o que não é pseudonimização de verdade,
+     * é só ofuscação. HMAC exige conhecer o salt (guardado só no
+     * servidor, via .env) pra sequer tentar reverter — reidentificação
+     * continua tecnicamente possível (é pseudonimização, não
+     * anonimização), mas exige informação adicional protegida
+     * separadamente, como a LGPD define.
      */
     public String hashUserId(Long userId) {
         if (userId == null) return null;
         try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(
-                    userId.toString().getBytes(StandardCharsets.UTF_8)
-            );
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(
+                    pseudonymizationSalt.getBytes(StandardCharsets.UTF_8),
+                    "HmacSHA256"
+            ));
+            byte[] hash = mac.doFinal(userId.toString().getBytes(StandardCharsets.UTF_8));
+
             StringBuilder hex = new StringBuilder();
             for (byte b : hash) {
                 hex.append(String.format("%02x", b));
             }
             return hex.toString();
         } catch (Exception e) {
+            log.error("Falha ao gerar hash pseudonimizado: {}", e.getMessage());
             return "hash-error";
         }
     }

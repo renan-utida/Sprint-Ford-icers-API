@@ -96,6 +96,75 @@ public class GlobalExceptionHandler {
                 ));
     }
 
+    @ExceptionHandler(UsuarioNaoEncontradoException.class)
+    public ResponseEntity<ErrorResponse> handleUsuarioNaoEncontrado(
+            UsuarioNaoEncontradoException ex,
+            HttpServletRequest request
+    ) {
+        log.info("Usuário não encontrado — endpoint: {} | mensagem: {}",
+                request.getRequestURI(), ex.getMessage());
+
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ErrorResponse.notFound(
+                        ex.getMessage(),
+                        request.getRequestURI()
+                ));
+    }
+
+    // 409 — Auto-anonimização bloqueada
+
+    @ExceptionHandler(AutoAnonimizacaoException.class)
+    public ResponseEntity<ErrorResponse> handleAutoAnonimizacao(
+            AutoAnonimizacaoException ex,
+            HttpServletRequest request
+    ) {
+        log.warn("Tentativa de auto-anonimização bloqueada — endpoint: {}",
+                request.getRequestURI());
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(
+                        "SELF_ANONYMIZATION_BLOCKED",
+                        ex.getMessage(),
+                        request.getRequestURI()
+                ));
+    }
+
+    @ExceptionHandler(AutoDesativacaoException.class)
+    public ResponseEntity<ErrorResponse> handleAutoDesativacao(
+            AutoDesativacaoException ex,
+            HttpServletRequest request
+    ) {
+        log.warn("Tentativa de auto-desativação bloqueada — endpoint: {}",
+                request.getRequestURI());
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(
+                        "SELF_DEACTIVATION_BLOCKED",
+                        ex.getMessage(),
+                        request.getRequestURI()
+                ));
+    }
+
+    @ExceptionHandler(EmailJaCadastradoException.class)
+    public ResponseEntity<ErrorResponse> handleEmailJaCadastrado(
+            EmailJaCadastradoException ex,
+            HttpServletRequest request
+    ) {
+        log.warn("Tentativa de cadastro com email duplicado — endpoint: {}",
+                request.getRequestURI());
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(
+                        "EMAIL_ALREADY_EXISTS",
+                        ex.getMessage(),
+                        request.getRequestURI()
+                ));
+    }
+
     // 401 — Não autenticado
 
     @ExceptionHandler(AuthenticationException.class)

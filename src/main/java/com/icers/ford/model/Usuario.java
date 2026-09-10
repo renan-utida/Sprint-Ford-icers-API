@@ -31,6 +31,9 @@ public class Usuario {
     @Column(name = "email", nullable = false, unique = true, length = 150)
     private String email;
 
+    @Column(name = "nome", nullable = false, length = 150)
+    private String nome;
+
     @Column(name = "senha_hash", nullable = false, length = 255)
     private String senhaHash;
 

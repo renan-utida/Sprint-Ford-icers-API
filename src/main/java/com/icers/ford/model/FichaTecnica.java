@@ -42,8 +42,13 @@ public class FichaTecnica {
      * Formato: [{ "campo": "motor", "valor": "V6 3.0L",
      *             "confianca": "ALTA", "fonte": "https://...",
      *             "verificadoEm": "2026-05-10" }]
+     * <p>
+     * Criptografado em repouso (AES-256-GCM) via
+     * CamposJsonEncryptedConverter — transparente pro resto do código,
+     * este campo se comporta como texto plano normal em memória.
      */
     @Lob
+    @Convert(converter = com.icers.ford.model.converter.CamposJsonEncryptedConverter.class)
     @Column(name = "campos_json", nullable = false)
     private String camposJson;
 

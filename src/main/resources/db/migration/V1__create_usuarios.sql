@@ -1,13 +1,18 @@
 -- V1: Tabela de Usuários
 -- SpecRadar API | Ford FIAP 2026
 
+-- Criação defensiva da sequence: uma tentativa anterior desta migration
+-- pode ter criado a sequence com sucesso e falhado só depois, no
+-- CREATE TABLE (ex: colisão de nome de constraint com outro projeto
+-- no mesmo schema Oracle compartilhado). Ignora ORA-00955 (objeto já
+-- existe) e propaga qualquer outro erro normalmente.
 BEGIN
 EXECUTE IMMEDIATE 'CREATE SEQUENCE seq_usuario_id START WITH 1 INCREMENT BY 1 NOCACHE NOCYCLE';
 EXCEPTION
     WHEN OTHERS THEN
         IF SQLCODE != -955 THEN
             RAISE;
-        END IF;
+END IF;
 END;
 /
 
@@ -18,6 +23,7 @@ END;
 -- outro projeto que já tenha uma tabela de usuário própria.
 CREATE TABLE sr_usuarios (
     id              NUMBER DEFAULT seq_usuario_id.NEXTVAL NOT NULL,
+    nome            VARCHAR2(150)   NOT NULL,
     email           VARCHAR2(150)   NOT NULL,
     senha_hash      VARCHAR2(255)   NOT NULL,
     role            VARCHAR2(20)    NOT NULL,
