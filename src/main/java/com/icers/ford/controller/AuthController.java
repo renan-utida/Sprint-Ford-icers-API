@@ -4,7 +4,9 @@ import com.icers.ford.dto.request.LoginRequest;
 import com.icers.ford.dto.request.RefreshRequest;
 import com.icers.ford.dto.response.AuthResponse;
 import com.icers.ford.dto.response.ErrorResponse;
+import com.icers.ford.model.RefreshTokenUsado;
 import com.icers.ford.model.Usuario;
+import com.icers.ford.repository.RefreshTokenUsadoRepository;
 import com.icers.ford.repository.UsuarioRepository;
 import com.icers.ford.security.JwtService;
 import com.icers.ford.service.AuditService;
@@ -41,6 +43,7 @@ public class AuthController {
     private final AuthenticationManager authenticationManager;
     private final JwtService jwtService;
     private final UsuarioRepository usuarioRepository;
+    private final RefreshTokenUsadoRepository refreshTokenUsadoRepository;
     private final AuditService auditService;
     private final LoginLockoutService loginLockoutService;
     private final IpResolver ipResolver;
@@ -198,6 +201,28 @@ public class AuthController {
                         ));
             }
 
+            String jti = jwtService.extractJti(token);
+
+            // Reuso de refresh token já rotacionado — o mesmo jti já
+            // foi apresentado antes e trocado por um par novo. Isso
+            // não deveria acontecer com o dono legítimo (ele já
+            // estaria usando o token novo); é um sinal de possível
+            // token comprometido. Resposta idêntica à de qualquer
+            // outro token inválido — não damos ao possível atacante
+            // informação sobre POR QUE falhou, só o log interno é
+            // mais específico.
+            if (jti != null && refreshTokenUsadoRepository.existsById(jti)) {
+                log.warn("Refresh token REUTILIZADO (já rotacionado antes) — " +
+                        "possível token comprometido — ip: {}", ip);
+                return ResponseEntity
+                        .status(HttpStatus.UNAUTHORIZED)
+                        .body(ErrorResponse.of(
+                                "INVALID_REFRESH_TOKEN",
+                                "Refresh token inválido ou expirado.",
+                                "/api/v1/auth/refresh"
+                        ));
+            }
+
             String email = jwtService.extractEmail(token);
 
             // Busca o usuário ativo
@@ -214,6 +239,24 @@ public class AuthController {
                                 "Refresh token inválido ou expirado.",
                                 "/api/v1/auth/refresh"
                         ));
+            }
+
+            // Marca ESTE token (jti) como usado ANTES de emitir o par
+            // novo — assim, mesmo que algo falhe logo em seguida, o
+            // token antigo já está morto (prioriza segurança em vez
+            // de deixar uma janela onde ele ainda funcionaria).
+            if (jti != null) {
+                LocalDateTime expiraEm = jwtService.extractExpirationAsLocalDateTime(token);
+                refreshTokenUsadoRepository.save(
+                        RefreshTokenUsado.builder()
+                                .jti(jti)
+                                .expiraEm(expiraEm)
+                                .build()
+                );
+                // Limpeza oportunista — aproveita esta escrita pra
+                // remover entradas de tokens que já expirariam de
+                // qualquer jeito, sem precisar de job agendado à parte.
+                refreshTokenUsadoRepository.deleteByExpiraEmBefore(LocalDateTime.now());
             }
 
             // Rotação de token — gera novo par completo

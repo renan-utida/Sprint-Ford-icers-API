@@ -9,8 +9,11 @@ import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Date;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
 
 @Slf4j
@@ -52,12 +55,18 @@ public class JwtService {
     }
 
     /**
-     * Gera o refresh token — contém apenas o email e o tipo.
+     * Gera o refresh token — contém o email, o tipo, e um jti (UUID)
+     * único por token. O jti é o que permite revogar ESTE token
+     * específico na rotação (ver AuthController.refresh()), sem
+     * afetar nenhum outro token já emitido.
      * Expiração: 7 dias (configurável em application.properties)
      */
     public String generateRefreshToken(String email) {
         return buildToken(
-                Map.of("type", "REFRESH"),
+                Map.of(
+                        "type", "REFRESH",
+                        "jti", UUID.randomUUID().toString()
+                ),
                 email,
                 refreshTokenExpiration
         );
@@ -94,6 +103,21 @@ public class JwtService {
 
     public String extractTokenType(String token) {
         return extractClaim(token, claims -> claims.get("type", String.class));
+    }
+
+    /**
+     * Extrai o jti (identificador único) do token — usado pra checar
+     * e registrar reuso de refresh token na rotação.
+     */
+    public String extractJti(String token) {
+        return extractClaim(token, claims -> claims.get("jti", String.class));
+    }
+
+    public LocalDateTime extractExpirationAsLocalDateTime(String token) {
+        Date expiration = extractClaim(token, Claims::getExpiration);
+        return expiration.toInstant()
+                .atZone(ZoneId.systemDefault())
+                .toLocalDateTime();
     }
 
     public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
