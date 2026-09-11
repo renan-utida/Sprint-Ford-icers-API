@@ -1,5 +1,6 @@
 package com.icers.ford.dto.request;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.*;
 
 import java.util.List;
@@ -13,6 +14,7 @@ public record SpecQueryRequest(
                 regexp = "^[a-zA-ZÀ-ÿ\\s\\-]+$",
                 message = "Marca deve conter apenas letras, espaços e hífens"
         )
+        @Schema(example = "Ford")
         String marca,
 
         @NotBlank(message = "Modelo é obrigatório")
@@ -22,6 +24,7 @@ public record SpecQueryRequest(
                 regexp = "^[a-zA-ZÀ-ÿ\\s\\-]+$",
                 message = "Modelo deve conter apenas letras, espaços e hífens"
         )
+        @Schema(example = "Ranger")
         String modelo,
 
         @NotBlank(message = "Versão é obrigatória")
@@ -31,9 +34,11 @@ public record SpecQueryRequest(
                 regexp = "^[a-zA-ZÀ-ÿ0-9\\s\\-\\.]+$",
                 message = "Versão deve conter apenas letras, números, espaços, hífens e pontos"
         )
+        @Schema(example = "Raptor")
         String versao,
 
         @NotEmpty(message = "Lista de atributos é obrigatória")
         @Size(max = 20, message = "Máximo de 20 atributos por consulta")
+        @Schema(example = "[\"motor\", \"potencia\", \"preco\"]")
         List<String> atributos
 ) {}

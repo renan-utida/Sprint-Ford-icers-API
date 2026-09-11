@@ -12,6 +12,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -222,6 +223,24 @@ public class GlobalExceptionHandler {
                 .body(ErrorResponse.serviceUnavailable(
                         request.getRequestURI()
                 ));
+    }
+
+    // 499-ish — Cliente (navegador/app) fechou a conexão antes da
+    // resposta terminar de ser escrita (ex: recarregou a aba do
+    // Swagger no meio do carregamento). Não é uma falha nossa — não
+    // existe mais ninguém do outro lado pra receber resposta nenhuma,
+    // então não faz sentido logar como ERROR nem tentar analisar isso
+    // como um bug. DEBUG é suficiente pra rastrear se precisar.
+
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleClienteDesconectado(
+            AsyncRequestNotUsableException ex,
+            HttpServletRequest request
+    ) {
+        log.debug("Cliente desconectou antes da resposta terminar — endpoint: {}",
+                request.getRequestURI());
+        // Sem corpo de resposta — a conexão já não existe mais do
+        // outro lado, então não há pra quem escrever.
     }
 
     // 500 — Catch-all para exceções não previstas
