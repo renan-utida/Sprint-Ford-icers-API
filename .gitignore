@@ -40,3 +40,6 @@ build/
 ### Logs ###
 *.log
 logs/
+
+### Certificado SSL (gerado localmente via keytool, nunca commitar) ###
+src/main/resources/*.p12

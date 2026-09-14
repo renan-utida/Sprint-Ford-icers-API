@@ -2,7 +2,7 @@
 
 > API de inteligência competitiva para especificações técnicas de veículos — desenvolvida para o desafio Ford × FIAP 2026.
 
-**Status:** 🚧 Em desenvolvimento ativo — Fase B em andamento (Grupos 1–6 de 9 concluídos).
+**Status:** 🚧 Em desenvolvimento ativo — Fase B em andamento (Grupos 1–7 de 9 concluídos).
 **Este README é provisório.** Será revisado, completado e organizado de forma definitiva na Fase D, depois que o projeto estiver totalmente estabilizado (ver [Roadmap](#roadmap-do-projeto) abaixo).
 
 **Aluno responsável:** Renan Dias Utida (RM 558540) — Cybersecurity / Arquitetura Orientada a Serviços (SOA)
@@ -44,6 +44,7 @@ Copie `.env.example` para `.env` e preencha (nunca commitar o `.env` real):
 JWT_SECRET=<chave secreta para assinatura dos tokens JWT>
 AES_SECRET_KEY=<chave de 32 bytes em Base64 — gerar com: openssl rand -base64 32>
 PSEUDONYMIZATION_SALT=<salt de 32 bytes em Base64 — mesmo comando acima>
+SSL_KEYSTORE_PASSWORD=<senha do keystore PKCS12 usado no perfil prod — ver Segurança>
 ```
 (mais a chave da API do Gemini, conforme configurado em `application.properties`)
 
@@ -52,6 +53,71 @@ PSEUDONYMIZATION_SALT=<salt de 32 bytes em Base64 — mesmo comando acima>
 1. Garanta que o schema Oracle está acessível e vazio (ou já com as migrations anteriores aplicadas).
 2. Rode a aplicação — o Flyway aplica as migrations `V1` a `V9` automaticamente na inicialização.
 3. Acesse a documentação interativa em `/swagger-ui/index.html`.
+
+### Trocando entre os perfis `dev` e `prod`
+
+**A variável `SPRING_PROFILE` dentro do `.env` não controla de fato qual
+`application-{perfil}.properties` é carregado.** A biblioteca
+`springboot3-dotenv` lê o `.env` tarde demais no bootstrap do Spring Boot —
+depois que o Spring já decidiu qual perfil ativar e quais arquivos de
+propriedades carregar. Na prática, editar só o `.env` sempre resulta no
+perfil `dev` sendo aplicado de verdade, mesmo que o valor de `SPRING_PROFILE`
+diga outra coisa (isso só engana o `Environment` quando consultado depois,
+o que inclusive já confundiu o banner de inicialização até isso ser
+descoberto).
+
+Para rodar de fato em `prod`, defina `SPRING_PROFILES_ACTIVE=prod` como
+**variável de ambiente real** (nunca só no `.env`):
+
+```bash
+# Git Bash / terminal
+SPRING_PROFILES_ACTIVE=prod ./mvnw spring-boot:run
+```
+
+Ou, na IntelliJ, na run configuration: aba **Environment variables** →
+`SPRING_PROFILES_ACTIVE=prod`. Para voltar a `dev`, remova a variável (ou
+troque o valor) — sem ela, o default `spring.profiles.active=dev` do
+`application.properties` continua valendo. Não existe mais nenhuma variável
+`SPRING_PROFILE` no `.env`/`.env.example` — foi removida de propósito, pra
+não sugerir que trocar de perfil é tão simples quanto editar o `.env`.
+
+**Cuidado ao testar:** nunca edite `spring.profiles.active` direto no
+`application.properties` pra "testar prod rapidinho" — isso muda o *default*
+pra qualquer execução sem `SPRING_PROFILES_ACTIVE` definida (inclusive puxa
+esse valor pro Git se for commitado sem querer). Sempre use a variável de
+ambiente pra alternar; o arquivo deve continuar com `dev` fixo.
+
+**Mesma armadilha, outra propriedade:** `server.port` também não pode
+depender de uma variável tipo `${SERVER_PORT:8080}` no `application.properties`
+base — qualquer `SERVER_PORT` presente no `.env` teria prioridade *maior*
+que `application-prod.properties` (mesmo mecanismo de precedência do
+`spring.profiles.active`, via *relaxed binding* do Spring Boot entre
+`SERVER_PORT` e `server.port`), sobrescrevendo silenciosamente o `8443` do
+prod pelo valor do `.env`. Por isso `server.port` agora é fixo por perfil
+(`8080` no base/dev, `8443` só em `application-prod.properties`), sem
+nenhuma variável de `.env` envolvida. Isso foi detectado durante o teste
+manual do Grupo 7: o banner mostrava `HTTPS, porta 8080` — SSL habilitado
+corretamente, mas porta presa no valor do `.env`.
+
+### Nota prática: IntelliJ mostrando `application.properties` com acentos corrompidos
+
+Se esse arquivo aparecer com acentos corrompidos (`nÃ£o`, `variÃ¡vel`, etc.)
+dentro da IntelliJ mesmo com os bytes do arquivo corretos em UTF-8 (confirmável
+lendo o arquivo fora da IDE) e com todas as configurações de encoding da IDE já
+certas (Settings → Editor → File Encodings — Global, Project e a seção
+"Properties Files" todas em UTF-8), **o problema não está no arquivo nem nas
+configurações**: é a IntelliJ mantendo, só para aquele arquivo específico, uma
+decisão de encoding cacheada de quando ele genuinamente esteve em ISO-8859-1
+(o `application.properties` já teve esse problema real antes de ser corrigido
+— ver decisão de design abaixo). Essa decisão por arquivo tem prioridade sobre
+qualquer configuração padrão e não é reconsultada automaticamente.
+
+Correção: com o arquivo aberto, clique no indicador de encoding no canto
+inferior direito da janela → **File → Invalidate Caches → Invalidate and
+Restart**. (Trocar o encoding pelo indicador e escolher "Reload" pode
+resolver em alguns casos, mas nesse projeto só o Invalidate Caches funcionou
+de fato.) Vale saber disso caso outra pessoa abra o projeto numa instalação
+diferente da IntelliJ e veja o mesmo sintoma.
 
 ### Resetando o banco do zero
 
@@ -131,6 +197,7 @@ Resumo do que está implementado hoje (detalhes de cada decisão em [Decisões d
 - **`X-Forwarded-For` não confiado por padrão** — só é considerado se a conexão direta vier de um IP cadastrado como proxy confiável (vazio por padrão, já que não há proxy reverso real na frente hoje).
 - **Idempotência** — índice único impede ficha duplicada mesmo sob concorrência; header opcional `Idempotency-Key` evita reprocessar uma requisição repetida.
 - **Refresh token de uso único** — cada rotação invalida permanentemente o token anterior (ver tabela `sr_refresh_tokens_usados`).
+- **HTTPS/TLS** — perfil `prod` roda exclusivamente em HTTPS (porta 8443), com certificado self-signed PKCS12 (RSA 2048, `SHA384withRSA`, gerado via `keytool`, arquivo local nunca commitado); perfil `dev` continua em HTTP puro (porta 8080) para facilitar o desenvolvimento local.
 - **LGPD** — endpoint de anonimização (irreversível) e desativação (reversível) de usuário; travas contra auto-anonimização e auto-desativação.
 - **Charset UTF-8 explícito** em respostas de erro.
 
@@ -148,7 +215,7 @@ Testes funcionais manuais (via Insomnia), incluindo:
 - Caminhos de erro: `401` (sem token, expirado, manipulado), `400`/`422` (regex de marca/modelo, mais de 20 atributos, mensagem de chat fora do intervalo), `404` (veículo nunca consultado), `429` nos dois mecanismos de rate limit (IP e usuário, independentes).
 - `POST /auth/refresh` usado duas vezes com o mesmo token — **confirmou o gap** que motivou o Grupo 6 (rotação não invalidava o token antigo).
 
-### Fase B — Confrontar com os requisitos e corrigir — 🚧 EM ANDAMENTO (Grupos 1–6 de 9 concluídos)
+### Fase B — Confrontar com os requisitos e corrigir — 🚧 EM ANDAMENTO (Grupos 1–7 de 9 concluídos)
 
 Checklist contra os requisitos formais de Cybersecurity/SOA (documento com pontuação + material gamificado), e contra a proposta do grupo (`SpecRadar_Challenge_Ford.pdf` + `CHALLENGE_FORD.pdf`). Os achados foram organizados em 9 grupos por risco/dependência:
 
@@ -160,7 +227,7 @@ Checklist contra os requisitos formais de Cybersecurity/SOA (documento com pontu
 | 4 | Idempotência (índice único + header `Idempotency-Key`), `X-Forwarded-For` não confiado por padrão | ✅ Concluído |
 | 5 | `vencedor` do compare (comparação real por tipo de campo), `sugestoes_similares` no 404 — **escopo cresceu durante a execução** para incluir cache sempre completo (busca padrão na criação + completude sob demanda) e reverificação periódica de fichas | ✅ Concluído |
 | 6 | Revogação real de refresh token (tabela de tokens usados, identificados por `jti`) | ✅ Concluído |
-| 7 | HTTPS/TLS — portar o padrão já usado em outro projeto do mesmo aluno (perfil `prod`, certificado self-signed) | ⏳ Pendente |
+| 7 | HTTPS/TLS — portar o padrão já usado em outro projeto do mesmo aluno (perfil `prod`, certificado self-signed) | ✅ Concluído — testado (dev em HTTP:8080, prod em HTTPS:8443, login funcionando via Insomnia) |
 | 8 | Grounding real de busca no Gemini; sensor de demanda preditiva (escopo mínimo viável a definir, evitando o risco de web scraping já identificado e descartado na proposta original do grupo) | ⏳ Pendente |
 | 9 | `POST /specs/from-pdf` de verdade (hoje é stub `501`) | ⏳ Pendente |
 
@@ -188,6 +255,8 @@ Decisões que exigiram discussão e trade-offs explícitos ao longo do desenvolv
 - **Cache sempre busca pelo menos o conjunto de atributos padrão na primeira consulta de um veículo** (mesmo se o usuário pediu menos) — evita que uma pergunta estreita deixe o cache incompleto para consultas futuras mais amplas do mesmo veículo.
 - **Reverificação periódica é preguiçosa** (só na próxima consulta daquele veículo específico), não uma varredura agendada em massa — evita custo desnecessário de reverificar veículos que ninguém está mais consultando. Intervalo configurável pelo ADMIN (2–31 dias), travado por ficha na criação e **renovado** para o valor global vigente a cada reverificação (não travado para sempre).
 - **`bulk-import` (endpoint de ADMIN mencionado na proposta original) avaliado e descartado** — sem especificação suficiente em nenhum documento de referência para implementar com segurança.
+- **Troca de perfil `dev`/`prod` via variável de ambiente real (`SPRING_PROFILES_ACTIVE`), não via `.env`** — a biblioteca `springboot3-dotenv` roda como o `EnvironmentPostProcessor` de menor prioridade do Spring Boot, ou seja, depois que o `ConfigDataEnvironmentPostProcessor` (altíssima prioridade) já decidiu qual `application-{perfil}.properties` carregar. Confirmado via decompilação da biblioteca durante o teste do Grupo 7 (HTTPS/TLS): o valor de `SPRING_PROFILE` no `.env` só afeta o que `Environment.getProperty()` retorna depois que a aplicação já subiu, nunca a decisão real de bootstrap. Ver [Como rodar o projeto](#trocando-entre-os-perfis-dev-e-prod).
+- **`pom.xml` declara `UTF-8` explicitamente** (`project.build.sourceEncoding`/`project.reporting.outputEncoding`) — sem isso, compilação e cópia de resources ficam à mercê do encoding padrão do ambiente que builda, o que já causou corrupção de acentos tanto em `application.properties` (achado extra original) quanto, mais seriamente, em strings compiladas de `.java` (`OpenApiConfig`, texto do Swagger) quando compilado com encoding diferente de UTF-8.
 
 ## Limitações e itens propositalmente adiados
 
