@@ -23,7 +23,7 @@ public class SprintFordApiApplication {
 		System.out.println("--------------------------------------------------------");
 		System.out.println("Perfil ativo:  										 DEV");
 		System.out.println("Banco:         								 Oracle FIAP");
-		System.out.println("LLM:           		  Google Gemini 1.5 Flash (gratuito)");
+		System.out.println("LLM:           		  Google Gemini 3.7 Flash (gratuito)");
 		System.out.println("========================================================");
 	}
 }
