@@ -1,10 +1,12 @@
 package com.icers.ford.controller;
 
 import com.icers.ford.dto.request.ConfigRequest;
+import com.icers.ford.dto.request.SpecFromPdfRequest;
 import com.icers.ford.dto.request.SpecQueryRequest;
 import com.icers.ford.dto.response.ConfigResponse;
 import com.icers.ford.dto.response.ErrorResponse;
 import com.icers.ford.dto.response.SpecResponse;
+import com.icers.ford.exception.ArquivoInvalidoException;
 import com.icers.ford.model.Usuario;
 import com.icers.ford.repository.UsuarioRepository;
 import com.icers.ford.service.AuditService;
@@ -24,12 +26,17 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -294,29 +301,93 @@ public class SpecController {
         return ResponseEntity.ok(response);
     }
 
-    // POST /api/v1/specs/from-pdf — ROADMAP Sprint 4
+    // POST /api/v1/specs/from-pdf
 
     @Operation(
-            summary = "Extrair specs de PDF [Sprint 4]",
-            description = "**Não implementado nesta Sprint.** " +
-                    "Roadmap Sprint 4: recebe PDF de catálogo e extrai " +
-                    "especificações técnicas via modelo multimodal."
+            summary = "Extrair specs de PDF",
+            description = "Recebe um PDF de catálogo/ficha técnica e extrai " +
+                    "especificações via modelo multimodal do Gemini. Mesmo fluxo " +
+                    "cache-primeiro do /query: se o cache já tem tudo que foi " +
+                    "pedido, o PDF nem chega a ser processado. Campos marca/" +
+                    "modelo/versao/atributos têm a mesma validação de /query; " +
+                    "o arquivo vai no campo \"arquivo\" (application/pdf; arquivos " +
+                    "acima do limite configurado retornam 413). " +
+                    "**Limitação conhecida:** PDFs com fotos grandes de página " +
+                    "inteira têm chance de falha bem maior do que catálogos " +
+                    "tabulares/texto — ver investigação do Grupo 9 no README."
     )
-    @ApiResponse(responseCode = "501", description = "Funcionalidade prevista para Sprint 4")
-    @PostMapping("/from-pdf")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Ficha técnica retornada com sucesso",
+                    content = @Content(schema = @Schema(implementation = SpecResponse.class))),
+            @ApiResponse(responseCode = "422", description = "Dados inválidos ou arquivo não é um PDF válido",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "413", description = "Arquivo maior que o limite permitido",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Token ausente ou inválido",
+                    content = @Content),
+            @ApiResponse(responseCode = "429", description = "Limite de requisições excedido " +
+                    "(orçamento próprio e mais restrito que o de /query)",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
+            @ApiResponse(responseCode = "503", description = "Serviço de extração indisponível " +
+                    "— PDFs com fotos grandes têm maior chance de falha (ver descrição do endpoint)",
+                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
+    })
+    @PostMapping(value = "/from-pdf", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('ANALYST', 'ADMIN')")
-    public ResponseEntity<ErrorResponse> fromPdf() {
-        return ResponseEntity.status(501).body(
-                ErrorResponse.of(
-                        "NOT_IMPLEMENTED",
-                        "Extração de PDF será implementada na Sprint 4. " +
-                                "Roadmap: upload de catálogo → OCR → extração via LLM multimodal.",
-                        "/api/v1/specs/from-pdf"
-                )
+    public ResponseEntity<SpecResponse> fromPdf(
+            @Valid @ModelAttribute SpecFromPdfRequest request,
+
+            @Parameter(description = "Arquivo PDF (catálogo/ficha técnica)")
+            @RequestPart("arquivo") MultipartFile arquivo,
+
+            @AuthenticationPrincipal UserDetails userDetails,
+            HttpServletRequest httpRequest
+    ) throws IOException {
+        validarPdf(arquivo);
+
+        Usuario usuario = resolverUsuario(userDetails.getUsername());
+        String ip = ipResolver.resolverIp(httpRequest);
+
+        SpecResponse response = specService.queryFromPdf(
+                request, arquivo.getBytes(), usuario, ip
         );
+
+        return ResponseEntity.ok(response);
     }
 
     // MÉTODOS AUXILIARES
+
+    private static final byte[] ASSINATURA_PDF = {'%', 'P', 'D', 'F', '-'};
+
+    /**
+     * Valida o arquivo ANTES de gastar uma chamada multimodal (mais cara
+     * que uma de texto) que já sabemos que falharia: content-type
+     * declarado, não vazio, e assinatura real de PDF (%PDF-) nos
+     * primeiros bytes — um content-type "application/pdf" mentiroso não
+     * passa disso.
+     */
+    private void validarPdf(MultipartFile arquivo) throws IOException {
+        if (arquivo == null || arquivo.isEmpty()) {
+            throw new ArquivoInvalidoException(
+                    "Arquivo é obrigatório e não pode estar vazio."
+            );
+        }
+        if (!MediaType.APPLICATION_PDF_VALUE.equals(arquivo.getContentType())) {
+            throw new ArquivoInvalidoException(
+                    "Arquivo deve ser um PDF (Content-Type application/pdf)."
+            );
+        }
+
+        byte[] header = new byte[ASSINATURA_PDF.length];
+        try (InputStream is = arquivo.getInputStream()) {
+            int lidos = is.readNBytes(header, 0, header.length);
+            if (lidos < header.length || !Arrays.equals(header, ASSINATURA_PDF)) {
+                throw new ArquivoInvalidoException(
+                        "Arquivo não é um PDF válido (assinatura %PDF- ausente)."
+                );
+            }
+        }
+    }
 
     private Usuario resolverUsuario(String email) {
         return usuarioRepository.findByEmail(email)

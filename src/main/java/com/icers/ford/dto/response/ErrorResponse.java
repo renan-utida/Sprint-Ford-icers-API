@@ -121,6 +121,23 @@ public record ErrorResponse(
     }
 
     /**
+     * Erro 503 — mesmo caso acima, mas específico de POST /specs/from-pdf.
+     * Investigação do Grupo 9 confirmou que PDFs com imagem embutida têm
+     * chance bem maior de falhar do que PDFs tabulares/texto — vale essa
+     * dica adicional pro analista tentar de novo com um arquivo diferente.
+     */
+    public static ErrorResponse serviceUnavailableFromPdf(String endpoint) {
+        return of(
+                "SERVICE_UNAVAILABLE",
+                "O serviço de extração está temporariamente indisponível. " +
+                        "PDFs com fotos grandes têm maior chance de falha do que " +
+                        "catálogos tabulares/texto — tente novamente ou use um " +
+                        "arquivo com menos imagens.",
+                endpoint
+        );
+    }
+
+    /**
      * Erro 429 — rate limit excedido
      */
     public static ErrorResponse rateLimitExceeded(String endpoint, long retryAfterSeconds) {

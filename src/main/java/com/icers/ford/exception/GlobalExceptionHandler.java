@@ -3,6 +3,7 @@ package com.icers.ford.exception;
 import com.icers.ford.dto.response.ErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -13,6 +14,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.util.unit.DataSize;
 
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -20,6 +23,9 @@ import java.util.stream.Collectors;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @Value("${spring.servlet.multipart.max-file-size}")
+    private DataSize tamanhoMaximoArquivo;
 
     // 422 — Validação de campos (Bean Validation)
     // Status 422 (não 400) porque o corpo da requisição é sintaticamente
@@ -207,6 +213,51 @@ public class GlobalExceptionHandler {
                 ));
     }
 
+    // 422 — Arquivo de POST /specs/from-pdf inválido (content-type,
+    // vazio, ou sem assinatura %PDF-) — validado antes de gastar uma
+    // chamada multimodal que já sabemos que falharia.
+
+    @ExceptionHandler(ArquivoInvalidoException.class)
+    public ResponseEntity<ErrorResponse> handleArquivoInvalido(
+            ArquivoInvalidoException ex,
+            HttpServletRequest request
+    ) {
+        log.warn("Arquivo inválido em from-pdf — endpoint: {} | motivo: {}",
+                request.getRequestURI(), ex.getMessage());
+
+        return ResponseEntity
+                .status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(ErrorResponse.of(
+                        "VALIDATION_ERROR",
+                        ex.getMessage(),
+                        request.getRequestURI()
+                ));
+    }
+
+    // 413 — Arquivo maior que spring.servlet.multipart.max-file-size.
+    // Diferente do ArquivoInvalidoException (422) acima: aqui o problema
+    // é só o tamanho, não o conteúdo — Payload Too Large é a semântica
+    // HTTP correta, mesma precisão de status que o resto da API já usa
+    // (422 vs 400, por exemplo).
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleArquivoMuitoGrande(
+            MaxUploadSizeExceededException ex,
+            HttpServletRequest request
+    ) {
+        log.warn("Arquivo maior que o limite permitido — endpoint: {}",
+                request.getRequestURI());
+
+        return ResponseEntity
+                .status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(ErrorResponse.of(
+                        "PAYLOAD_TOO_LARGE",
+                        "Arquivo excede o tamanho máximo permitido ("
+                                + tamanhoMaximoArquivo.toMegabytes() + "MB).",
+                        request.getRequestURI()
+                ));
+    }
+
     // 503 — LLM indisponível
 
     @ExceptionHandler(LlmUnavailableException.class)
@@ -218,11 +269,22 @@ public class GlobalExceptionHandler {
         log.error("Serviço de extração indisponível — endpoint: {} | detalhe: {}",
                 request.getRequestURI(), ex.getMessage());
 
+        // /specs/from-pdf é intencionalmente diferenciado aqui: a
+        // investigação do Grupo 9 confirmou que PDF com imagem embutida
+        // tem chance bem maior de falhar nesse serviço do que PDF
+        // tabular/texto — vale avisar o analista nessa mensagem
+        // específica. Nenhuma outra rota (/query, /chat/message) bate
+        // nesse endsWith, então a mensagem genérica de sempre continua
+        // valendo pra elas, sem mudança de comportamento.
+        boolean isFromPdf = request.getRequestURI().endsWith("/from-pdf");
+
+        ErrorResponse body = isFromPdf
+                ? ErrorResponse.serviceUnavailableFromPdf(request.getRequestURI())
+                : ErrorResponse.serviceUnavailable(request.getRequestURI());
+
         return ResponseEntity
                 .status(HttpStatus.SERVICE_UNAVAILABLE)
-                .body(ErrorResponse.serviceUnavailable(
-                        request.getRequestURI()
-                ));
+                .body(body);
     }
 
     // 499-ish — Cliente (navegador/app) fechou a conexão antes da

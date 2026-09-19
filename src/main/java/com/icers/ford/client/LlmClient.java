@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.icers.ford.dto.response.CampoSpec;
 import com.icers.ford.exception.LlmUnavailableException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
@@ -13,6 +14,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -21,6 +23,7 @@ import java.util.Map;
 public class LlmClient {
 
     private final RestTemplate restTemplate;
+    private final RestTemplate restTemplatePdf;
     private final ObjectMapper objectMapper;
     private final String apiKey;
     private final String apiUrl;
@@ -28,12 +31,14 @@ public class LlmClient {
 
     public LlmClient(
             RestTemplate restTemplate,
+            @Qualifier("restTemplatePdf") RestTemplate restTemplatePdf,
             ObjectMapper objectMapper,
             @Value("${llm.api.key}") String apiKey,
             @Value("${llm.api.url}") String apiUrl,
             @Value("${llm.api.model}") String model
     ) {
         this.restTemplate = restTemplate;
+        this.restTemplatePdf = restTemplatePdf;
         this.objectMapper = objectMapper;
         this.apiKey = apiKey;
         this.apiUrl = apiUrl;
@@ -48,18 +53,48 @@ public class LlmClient {
                                                    String versao,
                                                    List<String> atributos) {
         String prompt = construirPrompt(marca, modelo, versao, atributos);
-        String url = apiUrl + "/" + model + ":generateContent?key=" + apiKey;
-
         log.info("Consultando Gemini para: {} {} {}", marca, modelo, versao);
+
+        return executarChamada(restTemplate, LlmRequest.of(prompt), atributos);
+    }
+
+    /**
+     * Consulta especificações a partir de um PDF (catálogo) anexado,
+     * em vez de depender só do conhecimento de treinamento do modelo.
+     * Usa o RestTemplate com timeout maior (restTemplatePdf) — ver
+     * RestTemplateConfig e a investigação do Grupo 9 sobre confiabilidade
+     * de chamadas multimodais.
+     */
+    public List<CampoSpec> consultarEspecificacoesDePdf(byte[] pdfBytes,
+                                                         String marca, String modelo,
+                                                         String versao,
+                                                         List<String> atributos) {
+        String prompt = construirPromptPdf(marca, modelo, versao, atributos);
+        String pdfBase64 = Base64.getEncoder().encodeToString(pdfBytes);
+
+        log.info("Consultando Gemini (PDF) para: {} {} {}", marca, modelo, versao);
+
+        return executarChamada(restTemplatePdf, LlmRequest.comPdf(prompt, pdfBase64), atributos);
+    }
+
+    /**
+     * Corpo compartilhado por consultarEspecificacoes e
+     * consultarEspecificacoesDePdf — chamada HTTP, extração do texto da
+     * resposta e tratamento de erro são idênticos nos dois casos; só o
+     * RestTemplate (timeout) e o LlmRequest (com ou sem PDF anexado)
+     * diferem entre eles.
+     */
+    private List<CampoSpec> executarChamada(RestTemplate cliente, LlmRequest request,
+                                            List<String> atributos) {
+        String url = apiUrl + "/" + model + ":generateContent?key=" + apiKey;
 
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
 
-            LlmRequest request = LlmRequest.of(prompt);
             HttpEntity<LlmRequest> entity = new HttpEntity<>(request, headers);
 
-            ResponseEntity<LlmResponse> response = restTemplate.exchange(
+            ResponseEntity<LlmResponse> response = cliente.exchange(
                     url,
                     HttpMethod.POST,
                     entity,
@@ -159,6 +194,71 @@ public class LlmClient {
                       "valor": "valor encontrado ou null",
                       "confianca": "ALTA|MEDIA|INFERIDA|NAO_ENCONTRADO",
                       "fonte": "url ou nome da fonte ou null",
+                      "verificado_em": "%s"
+                    }
+                  ],
+                  "confidence_geral": "ALTA|MEDIA|PARCIAL|BAIXA"
+                }
+                """.formatted(marca, modelo, versao,
+                listaAtributos, dataHoje, dataHoje);
+    }
+
+    /**
+     * Variante do prompt para extração a partir de um PDF anexado
+     * (mesmas regras de saída/JSON do construirPrompt) — a diferença é
+     * instruir o modelo a priorizar o conteúdo do documento em vez do
+     * conhecimento de treinamento, e a nunca marcar como ALTA/MEDIA um
+     * dado que não veio do PDF.
+     */
+    private String construirPromptPdf(String marca, String modelo,
+                                      String versao, List<String> atributos) {
+        String listaAtributos = String.join(", ", atributos);
+        String dataHoje = LocalDate.now().toString();
+
+        return """
+                Você é um especialista em especificações técnicas automotivas.
+
+                Um documento PDF (catálogo/ficha técnica) foi anexado a esta \
+                mensagem. Sua tarefa é extrair as especificações técnicas do \
+                veículo abaixo A PARTIR DESSE DOCUMENTO, em formato JSON \
+                estruturado.
+
+                <veiculo>
+                Marca: %s
+                Modelo: %s
+                Versão: %s
+                </veiculo>
+
+                <atributos_solicitados>
+                %s
+                </atributos_solicitados>
+
+                REGRAS OBRIGATÓRIAS:
+                1. Retorne APENAS o JSON, sem texto antes ou depois
+                2. Todos os atributos solicitados devem aparecer no JSON, \
+                mesmo os não encontrados
+                3. PRIORIZE o conteúdo do PDF anexado sobre seu conhecimento \
+                geral — se o dado estiver no documento, use exatamente o que \
+                está escrito lá, mesmo que pareça diferente do que você sabe
+                4. Para atributos não encontrados NEM no PDF NEM no seu \
+                conhecimento geral, use: "valor": null, "confianca": \
+                "NAO_ENCONTRADO", "fonte": null
+                5. Níveis de confiança válidos: ALTA, MEDIA, INFERIDA, NAO_ENCONTRADO
+                6. Se o valor veio do PDF anexado, use "fonte": "PDF anexado" \
+                e confianca ALTA ou MEDIA. Se o PDF não tinha esse campo e você \
+                complementou com conhecimento geral, use confianca INFERIDA e \
+                "fonte": "conhecimento geral (não encontrado no PDF)" — NUNCA \
+                marque como ALTA ou MEDIA um dado que não veio do documento
+                7. Use "verificado_em" com a data de hoje: %s
+
+                FORMATO JSON OBRIGATÓRIO:
+                {
+                  "campos": [
+                    {
+                      "campo": "nome_do_atributo",
+                      "valor": "valor encontrado ou null",
+                      "confianca": "ALTA|MEDIA|INFERIDA|NAO_ENCONTRADO",
+                      "fonte": "PDF anexado|conhecimento geral (não encontrado no PDF)|null",
                       "verificado_em": "%s"
                     }
                   ],

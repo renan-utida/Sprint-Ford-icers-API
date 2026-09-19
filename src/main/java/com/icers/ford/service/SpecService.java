@@ -3,6 +3,7 @@ package com.icers.ford.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.icers.ford.client.LlmClient;
+import com.icers.ford.dto.request.SpecFromPdfRequest;
 import com.icers.ford.dto.request.SpecQueryRequest;
 import com.icers.ford.dto.response.CampoSpec;
 import com.icers.ford.dto.response.SpecResponse;
@@ -30,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -45,9 +47,15 @@ public class SpecService {
     private final AuditService auditService;
     private final ObjectMapper objectMapper;
     private final int requestsPerMinute;
+    private final int requestsPerMinuteFromPdf;
 
-    // Cache de buckets por usuário — um bucket por user_id
+    // Cache de buckets por usuário — um bucket por user_id. Separado por
+    // endpoint (não compartilhado): /from-pdf é uma chamada bem mais cara
+    // (payload maior, timeout maior — ver Grupo 9) e merece um orçamento
+    // próprio e mais restrito, em vez de disputar o mesmo teto de /query.
     private final ConcurrentHashMap<Long, Bucket> bucketsPorUsuario =
+            new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, Bucket> bucketsPdfPorUsuario =
             new ConcurrentHashMap<>();
 
     public SpecService(
@@ -57,7 +65,8 @@ public class SpecService {
             ConfigService configService,
             AuditService auditService,
             ObjectMapper objectMapper,
-            @Value("${ratelimit.user.requests-per-minute:60}") int requestsPerMinute
+            @Value("${ratelimit.user.requests-per-minute:60}") int requestsPerMinute,
+            @Value("${ratelimit.user.requests-per-minute-from-pdf:10}") int requestsPerMinuteFromPdf
     ) {
         this.fichaTecnicaRepository = fichaTecnicaRepository;
         this.historicoRepository = historicoRepository;
@@ -66,6 +75,7 @@ public class SpecService {
         this.auditService = auditService;
         this.objectMapper = objectMapper;
         this.requestsPerMinute = requestsPerMinute;
+        this.requestsPerMinuteFromPdf = requestsPerMinuteFromPdf;
     }
 
     // QUERY — verifica cache, chama LLM se necessário
@@ -77,8 +87,6 @@ public class SpecService {
     @Transactional
     public SpecResponse query(SpecQueryRequest request,
                               Usuario usuario, String ip) {
-        long inicio = System.currentTimeMillis();
-
         String marca = request.marca().trim();
         String modelo = request.modelo().trim();
         String versao = request.versao().trim();
@@ -88,7 +96,64 @@ public class SpecService {
                 usuario.getEmail(), marca, modelo, versao);
 
         // Rate limiting por usuário — antes de qualquer operação
-        verificarRateLimitUsuario(usuario.getId(), ip);
+        verificarRateLimitUsuario(usuario.getId(), ip, "/api/v1/specs/query");
+
+        return resolverComCache(
+                marca, modelo, versao, atributos, usuario, ip,
+                "/api/v1/specs/query",
+                atributosParaBuscar -> llmClient.consultarEspecificacoes(
+                        marca, modelo, versao, atributosParaBuscar
+                )
+        );
+    }
+
+    // QUERY FROM PDF — mesmo fluxo cache-primeiro do query(), trocando
+    // só a fonte da extração (PDF anexado em vez de conhecimento do
+    // modelo). Ver investigação do Grupo 9: falhas do Gemini aqui viram
+    // o mesmo LlmUnavailableException/503 de sempre — não um caso
+    // especial — mas com uma dica adicional pro analista (ver
+    // GlobalExceptionHandler).
+
+    /**
+     * Consulta especificações extraindo de um PDF anexado.
+     * Fluxo idêntico ao query(): rate limit → cache → LLM (com o PDF,
+     * se miss/incompleto) → salva → retorna. Se o cache já tem tudo que
+     * foi pedido, o PDF nem chega a ser processado.
+     */
+    @Transactional
+    public SpecResponse queryFromPdf(SpecFromPdfRequest request, byte[] pdfBytes,
+                                     Usuario usuario, String ip) {
+        String marca = request.marca().trim();
+        String modelo = request.modelo().trim();
+        String versao = request.versao().trim();
+        List<String> atributos = sanitizarAtributos(request.atributos());
+
+        log.info("Query (PDF) — usuário: {} | veículo: {} {} {}",
+                usuario.getEmail(), marca, modelo, versao);
+
+        verificarRateLimitUsuarioPdf(usuario.getId(), ip, "/api/v1/specs/from-pdf");
+
+        return resolverComCache(
+                marca, modelo, versao, atributos, usuario, ip,
+                "/api/v1/specs/from-pdf",
+                atributosParaBuscar -> llmClient.consultarEspecificacoesDePdf(
+                        pdfBytes, marca, modelo, versao, atributosParaBuscar
+                )
+        );
+    }
+
+    /**
+     * Corpo compartilhado por query() e queryFromPdf() — a decisão de
+     * cache hit / expirada / parcial / miss e a persistência são
+     * idênticas nos dois fluxos; só COMO os atributos que faltam são
+     * buscados no LLM muda (texto vs. PDF), por isso é injetado como
+     * função em vez de fixo aqui dentro.
+     */
+    private SpecResponse resolverComCache(String marca, String modelo, String versao,
+                                          List<String> atributos, Usuario usuario, String ip,
+                                          String endpointAuditoria,
+                                          Function<List<String>, List<CampoSpec>> buscarNoLlm) {
+        long inicio = System.currentTimeMillis();
 
         // Verifica cache no banco
         Optional<FichaTecnica> cache = fichaTecnicaRepository
@@ -162,9 +227,7 @@ public class SpecService {
                         .distinct()
                         .toList();
 
-                List<CampoSpec> camposFrescos = llmClient.consultarEspecificacoes(
-                        marca, modelo, versao, atributosParaReverificar
-                );
+                List<CampoSpec> camposFrescos = buscarNoLlm.apply(atributosParaReverificar);
 
                 String confidenceGeral = calcularConfidenceGeral(camposFrescos);
                 ficha.setIntervaloReverificacaoDias(intervaloAtual);
@@ -186,9 +249,7 @@ public class SpecService {
 
                 cacheHit = false; // precisou chamar o LLM, não foi hit puro
 
-                List<CampoSpec> camposNovos = llmClient.consultarEspecificacoes(
-                        marca, modelo, versao, atributosFaltando
-                );
+                List<CampoSpec> camposNovos = buscarNoLlm.apply(atributosFaltando);
 
                 List<CampoSpec> camposMesclados = new ArrayList<>(camposCache);
                 camposMesclados.addAll(camposNovos);
@@ -219,9 +280,7 @@ public class SpecService {
                     .distinct()
                     .toList();
 
-            List<CampoSpec> campos = llmClient.consultarEspecificacoes(
-                    marca, modelo, versao, atributosParaBuscar
-            );
+            List<CampoSpec> campos = buscarNoLlm.apply(atributosParaBuscar);
 
             String confidenceGeral = calcularConfidenceGeral(campos);
 
@@ -270,7 +329,7 @@ public class SpecService {
                 atributos, cacheHit, tempoMs);
 
         auditService.logConsulta(
-                usuario.getId(), "/api/v1/specs/query", ip,
+                usuario.getId(), endpointAuditoria, ip,
                 marca, modelo, versao, cacheHit, 200
         );
 
@@ -386,11 +445,20 @@ public class SpecService {
      * Cada usuário tem seu próprio bucket de 60 req/min.
      * Lança RateLimitExceededException se o limite for excedido.
      */
-    private void verificarRateLimitUsuario(Long usuarioId, String ip) {
-        Bucket bucket = bucketsPorUsuario.computeIfAbsent(usuarioId, id -> {
+    private void verificarRateLimitUsuario(Long usuarioId, String ip, String endpoint) {
+        verificarRateLimit(bucketsPorUsuario, requestsPerMinute, usuarioId, ip, endpoint);
+    }
+
+    private void verificarRateLimitUsuarioPdf(Long usuarioId, String ip, String endpoint) {
+        verificarRateLimit(bucketsPdfPorUsuario, requestsPerMinuteFromPdf, usuarioId, ip, endpoint);
+    }
+
+    private void verificarRateLimit(ConcurrentHashMap<Long, Bucket> buckets, int capacidade,
+                                    Long usuarioId, String ip, String endpoint) {
+        Bucket bucket = buckets.computeIfAbsent(usuarioId, id -> {
             Bandwidth limite = Bandwidth.builder()
-                    .capacity(requestsPerMinute)
-                    .refillGreedy(requestsPerMinute, Duration.ofMinutes(1))
+                    .capacity(capacidade)
+                    .refillGreedy(capacidade, Duration.ofMinutes(1))
                     .build();
             return Bucket.builder().addLimit(limite).build();
         });
@@ -401,9 +469,7 @@ public class SpecService {
             long retryAfter =
                     (probe.getNanosToWaitForRefill() + 999_999_999L) / 1_000_000_000L;
 
-            auditService.logRateLimitExceeded(
-                    usuarioId, "/api/v1/specs/query", ip
-            );
+            auditService.logRateLimitExceeded(usuarioId, endpoint, ip);
 
             throw new RateLimitExceededException(retryAfter);
         }

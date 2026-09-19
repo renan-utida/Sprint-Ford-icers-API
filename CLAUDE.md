@@ -42,7 +42,8 @@ principais testados manualmente (login, query com Gemini real, cache
 hit/miss, compare, history, chat, from-pdf stub, erros 401/400/422/404/429).
 
 **Fase B — Confrontar com requisitos formais de Cyber/SOA e a proposta do
-grupo:** 🚧 Em andamento — Grupos 1-7 de 9 concluídos e testados.
+grupo:** ✅ Concluída — Grupos 1-9 de 9 concluídos e testados (Grupo 8
+avaliado e descartado com evidência; os demais implementados e testados).
 
 | Grupo | Escopo | Status |
 |---|---|---|
@@ -53,8 +54,93 @@ grupo:** 🚧 Em andamento — Grupos 1-7 de 9 concluídos e testados.
 | 5 | `vencedor` do `/compare` corrigido (comparação numérica real), `sugestoes_similares` no 404, cache sempre completo, reverificação periódica configurável (2-31 dias) | ✅ |
 | 6 | Revogação real de refresh token (`sr_refresh_tokens_usados` por `jti`) | ✅ |
 | **7** | **HTTPS/TLS** — portar padrão do Código 1 (perfil `prod` com PKCS12 self-signed via keytool; `dev` continua HTTP) | ✅ Concluído |
-| 8 | Grounding real de busca no Gemini + sensor de demanda preditiva (escopo mínimo a definir) | ⏳ |
-| 9 | `POST /specs/from-pdf` de verdade (hoje 501) | ⏳ |
+| **8** | **Grounding real no Gemini (item 1) + sensor de demanda preditiva (item 2)** — investigados, **descartados** por limitação confirmada da conta | ✅ Avaliado e descartado (evidência: 7 testes) |
+| **9** | **`POST /specs/from-pdf`** — multipart, cache-primeiro, rate limit próprio (10/min), validação de arquivo antes da chamada cara | ✅ Concluído — testado (7 cenários + independência de rate limit confirmada na prática) |
+
+**Grupo 8 — investigado e descartado (não implementado). Detalhe completo,
+com a tabela dos 7 testes, em `docs/README-provisorio-do-que-foi-feito.md`
+— seção "Grupo 8 — Investigação de grounding (evidência completa)".
+Essa seção deve sobreviver integralmente (tabela incluída) na reescrita do
+README na Fase D — não resumir.**
+
+Resumo:
+- **Divergência real entre `ideia-inicial.txt` e os PDFs vigentes**: a
+  `ideia-inicial.txt` descarta explicitamente um pipeline de scraping
+  ("Proposta 1B") por risco técnico. Os PDFs vigentes citam "sensor de
+  demanda preditiva" como diferencial já entregue. Resolvido: o sensor real
+  seria construído em cima do grounding, nunca com parsing de HTML de
+  terceiros — mas isso ficou sem efeito prático porque o item 1 não avançou.
+- **Sete chamadas diretas à API do Gemini** (controles pareados: mesmo
+  modelo, com/sem `google_search`) confirmaram que a conta atual (tier
+  gratuito, sem faturamento) é estruturalmente incapaz de usar grounding:
+  toda variante da família Gemini 3.x chamável tem cota de grounding **zero**
+  (`429 RESOURCE_EXHAUSTED` imediato); toda variante da família Gemini 2.x
+  com cota de grounding disponível (1.500/28 dias, confirmado no painel do
+  Google AI Studio) está **bloqueada por elegibilidade de conta** (`404
+  "no longer available to new users"`). Não há nome de modelo que contorne
+  isso.
+- **Decisão — Caminho A (sem faturamento habilitado por agora):** item 1 não
+  implementado, `LlmClient` continua sem `google_search`; item 2 avaliado e
+  descartado no mesmo padrão do `bulk-import` do Grupo 3 (dependia do
+  grounding pra evitar o risco de scraping da Proposta 1B). Revisitar se o
+  faturamento for habilitado no futuro (Caminho B).
+- **Compliance do Google, registrado mesmo sem implementação**: resposta
+  grounded exigiria exibir `searchEntryPoint` ("Google Search Suggestions")
+  — responsabilidade do app mobile se o grounding for revisitado depois.
+
+**Grupo 9 — ✅ concluído e testado. Detalhe completo da investigação, com a
+tabela dos 16 testes, em `docs/README-provisorio-do-que-foi-feito.md` —
+seção "Grupo 9 — Investigação de confiabilidade multimodal (evidência
+completa)". Essa seção também deve sobreviver integralmente na Fase D.**
+
+Teste manual — 7 cenários + 1 bônus, todos confirmados: arquivo inválido
+(422), arquivo grande (413), PDF texto cache miss→hit (200, specs corretas,
+`fonte: "PDF anexado"`), PDF com foto (503 com mensagem específica — resultado
+esperado, não falha), rate limit 429 (variação 11→13 tentativas é normal,
+bucket4j usa refill contínuo), RBAC ANALYST+ADMIN (200 nos dois). **Bônus
+importante:** com `/from-pdf` travado em 429, `/query` respondeu 200 normal
+~2,5s depois, dentro da janela de espera reportada — confirma a independência
+dos dois buckets de rate limit **na prática**, não só na leitura do código.
+
+Resumo da investigação:
+- Antes de desenhar o endpoint, testamos envio de PDF via `inlineData` no
+  `generateContent` — diferente do grounding, é capacidade nativa do modelo,
+  não uma *tool* separada, então a expectativa era não ter surpresa.
+- **16 tentativas, com controles pareados**: PDF **sem nenhuma imagem
+  embutida** (specs recriadas como texto puro) → **200 OK, 1/1**, com 100%
+  dos campos batendo com o gabarito da Ranger Raptor (inclusive reproduziu
+  fielmente um erro de digitação do slide original, "R$499.00" em vez de
+  "R$499.000" — evidência de que o modelo transcreve, não "corrige" por
+  conta própria). PDF **com qualquer imagem embutida** (foto real da Raptor,
+  a mesma foto recomprimida, ou uma imagem sintética nova sem relação com o
+  arquivo original) → **503 em 15 de 16 tentativas**, incluindo depois de 2
+  dias de intervalo (descarta sobrecarga transitória) e com arquivo
+  totalmente novo (descarta corrupção específica de um arquivo). **Não
+  isolamos "textura fotográfica" como causa exclusiva** — só a correlação
+  forte entre presença de imagem embutida e falha, já que não testamos uma
+  imagem isolada sem texto associado.
+
+Resumo da implementação:
+- `SpecService.resolverComCache` extraído de `query()` e reaproveitado por
+  `queryFromPdf()` (parametrizado por uma função de "como buscar no LLM") —
+  evita duplicar a lógica de cache hit/expirada/parcial/miss entre os dois.
+- `/from-pdf` tem bucket de rate limit PRÓPRIO (10/min, `bucketsPdfPorUsuario`),
+  não compartilhado com o de `/query` (60/min) — chamada multimodal é bem
+  mais cara. Validação do arquivo (content-type + assinatura `%PDF-`) roda
+  antes do rate limit, no mesmo espírito de `/query` (Bean Validation também
+  roda antes) — arquivo inválido nunca chega perto de custar uma chamada ao
+  Gemini, então não deveria gastar esse orçamento escasso.
+- `RestTemplate` dedicado (`restTemplatePdf`, qualificado por nome do bean —
+  não pelo `@Qualifier` no método `@Bean`, que não teria efeito aí) com
+  timeout maior (120s vs 60s) só para chamadas multimodais.
+- `LlmUnavailableException`/503 em `/from-pdf` usa mensagem diferenciada
+  (dica sobre PDFs com fotos grandes) via `request.getRequestURI().endsWith("/from-pdf")`
+  dentro do handler único existente — sem tocar a exceção nem duplicar
+  handler; `/query`/`/chat/message` continuam com a mensagem genérica de
+  sempre (o `else` do `?:` é a chamada original, inalterada).
+- Arquivo grande demais (`MaxUploadSizeExceededException`) → **413**, não
+  422 (`ArquivoInvalidoException` é 422, conteúdo inválido — tamanho é 413).
+  Mensagem injeta o limite via `@Value(DataSize)`, nunca um número fixo.
 
 **Descobertas importantes durante o teste do Grupo 7 (não são achados novos do
 checklist, mas afetam qualquer trabalho futuro no projeto):**
