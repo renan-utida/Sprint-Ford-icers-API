@@ -11,6 +11,9 @@ import java.util.List;
         "mesmo quando não encontrados.")
 public record SpecResponse(
 
+        @Schema(description = "ID da ficha técnica no banco — use em DELETE /specs/{id}", example = "1")
+        Long id,
+
         @Schema(description = "Marca do veículo", example = "Ford")
         String marca,
 
@@ -48,11 +51,11 @@ public record SpecResponse(
     /**
      * Factory method para resultado novo — veio do LLM
      */
-    public static SpecResponse fromLlm(String marca, String modelo,
+    public static SpecResponse fromLlm(Long id, String marca, String modelo,
                                        String versao, List<CampoSpec> campos,
                                        String confidenceGeral) {
         return new SpecResponse(
-                marca, modelo, versao,
+                id, marca, modelo, versao,
                 campos, confidenceGeral,
                 LocalDateTime.now(),
                 false
@@ -62,12 +65,12 @@ public record SpecResponse(
     /**
      * Factory method para resultado do banco — cache hit
      */
-    public static SpecResponse fromCache(String marca, String modelo,
+    public static SpecResponse fromCache(Long id, String marca, String modelo,
                                          String versao, List<CampoSpec> campos,
                                          String confidenceGeral,
                                          LocalDateTime consultadoEm) {
         return new SpecResponse(
-                marca, modelo, versao,
+                id, marca, modelo, versao,
                 campos, confidenceGeral,
                 consultadoEm,
                 true

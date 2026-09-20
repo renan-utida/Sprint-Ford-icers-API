@@ -189,7 +189,7 @@ public class SpecService {
                 log.info("Cache hit — {} {} {}", marca, modelo, versao);
                 List<CampoSpec> campos = filtrarCampos(camposCache, atributos);
                 response = SpecResponse.fromCache(
-                        ficha.getMarca(), ficha.getModelo(), ficha.getVersao(),
+                        ficha.getId(), ficha.getMarca(), ficha.getModelo(), ficha.getVersao(),
                         campos,
                         ficha.getConfidenceGeral().name(),
                         ficha.getVerificadoEm()
@@ -235,7 +235,7 @@ public class SpecService {
 
                 List<CampoSpec> camposResposta = filtrarCampos(camposFrescos, atributos);
                 response = SpecResponse.fromLlm(
-                        marca, modelo, versao, camposResposta, confidenceGeral
+                        ficha.getId(), marca, modelo, versao, camposResposta, confidenceGeral
                 );
 
             } else {
@@ -259,7 +259,7 @@ public class SpecService {
 
                 List<CampoSpec> camposResposta = filtrarCampos(camposMesclados, atributos);
                 response = SpecResponse.fromLlm(
-                        marca, modelo, versao, camposResposta, confidenceGeral
+                        ficha.getId(), marca, modelo, versao, camposResposta, confidenceGeral
                 );
             }
         } else {
@@ -285,11 +285,11 @@ public class SpecService {
             String confidenceGeral = calcularConfidenceGeral(campos);
 
             try {
-                salvarFicha(marca, modelo, versao, campos, confidenceGeral, usuario);
+                Long idNovo = salvarFicha(marca, modelo, versao, campos, confidenceGeral, usuario);
 
                 List<CampoSpec> camposResposta = filtrarCampos(campos, atributos);
                 response = SpecResponse.fromLlm(
-                        marca, modelo, versao, camposResposta, confidenceGeral
+                        idNovo, marca, modelo, versao, camposResposta, confidenceGeral
                 );
             } catch (DataIntegrityViolationException e) {
                 // Corrida de concorrência: outra requisição para o MESMO
@@ -316,7 +316,7 @@ public class SpecService {
                         jaSalva.getCamposJson(), atributos
                 );
                 response = SpecResponse.fromCache(
-                        jaSalva.getMarca(), jaSalva.getModelo(), jaSalva.getVersao(),
+                        jaSalva.getId(), jaSalva.getMarca(), jaSalva.getModelo(), jaSalva.getVersao(),
                         camposExistentes,
                         jaSalva.getConfidenceGeral().name(),
                         jaSalva.getVerificadoEm()
@@ -487,14 +487,14 @@ public class SpecService {
                 ficha.getCamposJson(), List.of()
         );
         return SpecResponse.fromCache(
-                ficha.getMarca(), ficha.getModelo(), ficha.getVersao(),
+                ficha.getId(), ficha.getMarca(), ficha.getModelo(), ficha.getVersao(),
                 campos,
                 ficha.getConfidenceGeral().name(),
                 ficha.getVerificadoEm()
         );
     }
 
-    private void salvarFicha(String marca, String modelo, String versao,
+    private Long salvarFicha(String marca, String modelo, String versao,
                              List<CampoSpec> campos, String confidenceGeral,
                              Usuario usuario) {
         try {
@@ -511,11 +511,20 @@ public class SpecService {
                     // ficha específica não é afetada.
                     .intervaloReverificacaoDias(configService.getIntervaloReverificacaoDias())
                     .build();
-            fichaTecnicaRepository.save(ficha);
+            // saveAndFlush, não save: com GenerationType.SEQUENCE o save()
+            // só aloca o ID da sequence — o INSERT real (e a violação do
+            // índice único uk_sr_ficha_veiculo_ci, se houver corrida) só
+            // aconteceria no flush/commit do Hibernate, tarde demais pro
+            // catch(DataIntegrityViolationException) em query() pegar.
+            // Confirmado em teste de concorrência real com o mesmo padrão
+            // em UsuarioService (500 em vez do fallback esperado).
+            FichaTecnica salva = fichaTecnicaRepository.saveAndFlush(ficha);
             log.info("Ficha salva no banco — {} {} {}",
                     marca, modelo, versao);
+            return salva.getId();
         } catch (JsonProcessingException e) {
             log.error("Falha ao serializar campos: {}", e.getMessage());
+            return null;
         }
     }
 
