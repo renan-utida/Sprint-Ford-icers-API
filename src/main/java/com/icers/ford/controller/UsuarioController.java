@@ -6,10 +6,10 @@ import com.icers.ford.dto.response.ErrorResponse;
 import com.icers.ford.dto.response.UsuarioResponse;
 import com.icers.ford.exception.AutoAnonimizacaoException;
 import com.icers.ford.model.Usuario;
-import com.icers.ford.repository.UsuarioRepository;
 import com.icers.ford.service.AuditService;
 import com.icers.ford.service.UsuarioService;
 import com.icers.ford.util.IpResolver;
+import com.icers.ford.util.UsuarioResolver;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -42,7 +42,7 @@ import java.util.List;
 public class UsuarioController {
 
     private final UsuarioService usuarioService;
-    private final UsuarioRepository usuarioRepository;
+    private final UsuarioResolver usuarioResolver;
     private final AuditService auditService;
     private final IpResolver ipResolver;
 
@@ -97,12 +97,13 @@ public class UsuarioController {
             @AuthenticationPrincipal UserDetails userDetails,
             HttpServletRequest httpRequest
     ) {
-        Usuario admin = resolverUsuario(userDetails.getUsername());
+        Usuario admin = usuarioResolver.resolverUsuario(userDetails.getUsername());
         String ip = ipResolver.resolverIp(httpRequest);
 
         UsuarioResponse criado = usuarioService.criar(request);
 
-        auditService.logAdminAction(admin.getId(), ip, "CRIAR_USUARIO",
+        auditService.logAdminAction(admin.getId(), ip, httpRequest.getMethod(),
+                httpRequest.getRequestURI(), 201, "CRIAR_USUARIO",
                 "Usuário id=" + criado.id() + " criado com role=" + criado.role());
 
         return ResponseEntity.status(201).body(criado);
@@ -133,12 +134,13 @@ public class UsuarioController {
             @AuthenticationPrincipal UserDetails userDetails,
             HttpServletRequest httpRequest
     ) {
-        Usuario admin = resolverUsuario(userDetails.getUsername());
+        Usuario admin = usuarioResolver.resolverUsuario(userDetails.getUsername());
         String ip = ipResolver.resolverIp(httpRequest);
 
         UsuarioResponse atualizado = usuarioService.atualizar(id, request);
 
-        auditService.logAdminAction(admin.getId(), ip, "ATUALIZAR_USUARIO",
+        auditService.logAdminAction(admin.getId(), ip, httpRequest.getMethod(),
+                httpRequest.getRequestURI(), 200, "ATUALIZAR_USUARIO",
                 "Usuário id=" + id + " atualizado");
 
         return ResponseEntity.ok(atualizado);
@@ -165,12 +167,13 @@ public class UsuarioController {
             @AuthenticationPrincipal UserDetails userDetails,
             HttpServletRequest httpRequest
     ) {
-        Usuario admin = resolverUsuario(userDetails.getUsername());
+        Usuario admin = usuarioResolver.resolverUsuario(userDetails.getUsername());
         String ip = ipResolver.resolverIp(httpRequest);
 
         usuarioService.desativar(id, admin.getId());
 
-        auditService.logAdminAction(admin.getId(), ip, "DESATIVAR_USUARIO",
+        auditService.logAdminAction(admin.getId(), ip, httpRequest.getMethod(),
+                httpRequest.getRequestURI(), 204, "DESATIVAR_USUARIO",
                 "Usuário id=" + id + " desativado");
 
         return ResponseEntity.noContent().build();
@@ -193,12 +196,13 @@ public class UsuarioController {
             @AuthenticationPrincipal UserDetails userDetails,
             HttpServletRequest httpRequest
     ) {
-        Usuario admin = resolverUsuario(userDetails.getUsername());
+        Usuario admin = usuarioResolver.resolverUsuario(userDetails.getUsername());
         String ip = ipResolver.resolverIp(httpRequest);
 
         usuarioService.reativar(id);
 
-        auditService.logAdminAction(admin.getId(), ip, "REATIVAR_USUARIO",
+        auditService.logAdminAction(admin.getId(), ip, httpRequest.getMethod(),
+                httpRequest.getRequestURI(), 204, "REATIVAR_USUARIO",
                 "Usuário id=" + id + " reativado");
 
         return ResponseEntity.noContent().build();
@@ -230,7 +234,7 @@ public class UsuarioController {
             @AuthenticationPrincipal UserDetails userDetails,
             HttpServletRequest httpRequest
     ) {
-        Usuario admin = resolverUsuario(userDetails.getUsername());
+        Usuario admin = usuarioResolver.resolverUsuario(userDetails.getUsername());
         String ip = ipResolver.resolverIp(httpRequest);
 
         if (admin.getId().equals(id)) {
@@ -239,18 +243,11 @@ public class UsuarioController {
 
         usuarioService.anonimizar(id);
 
-        auditService.logAdminAction(admin.getId(), ip, "ANONIMIZAR_USUARIO",
+        auditService.logAdminAction(admin.getId(), ip, httpRequest.getMethod(),
+                httpRequest.getRequestURI(), 204, "ANONIMIZAR_USUARIO",
                 "Usuário id=" + id + " anonimizado");
 
         return ResponseEntity.noContent().build();
     }
 
-    // MÉTODOS AUXILIARES
-
-    private Usuario resolverUsuario(String email) {
-        return usuarioRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException(
-                        "Usuário autenticado não encontrado no banco"
-                ));
-    }
 }

@@ -67,12 +67,24 @@ public class AuditService {
 
     /**
      * Registra ação administrativa (alteração de perfil, delete, etc).
+     * <p>
+     * metodoHttp e endpoint vêm de request.getMethod()/getRequestURI() no
+     * controller — antes eram os placeholders fixos "POST/PUT/DELETE" e
+     * "/api/v1/admin/**", que nunca bateram com a coluna metodo_http
+     * (VARCHAR2(10) + CHECK IN ('GET','POST','PUT','PATCH','DELETE')):
+     * toda gravação falhava com ORA-12899/ORA-02290, engolida
+     * silenciosamente pelo catch de salvar() — nenhuma ação administrativa
+     * teve log de auditoria de verdade até essa correção.
+     * <p>
+     * status também vem do controller (o código de fato retornado —
+     * 201/200/204, conforme a ação) — antes era 200 fixo, incorreto pra
+     * criar (201) e pra desativar/reativar/anonimizar/deletar (204).
      */
     @Async
-    public void logAdminAction(Long adminId, String ip,
+    public void logAdminAction(Long adminId, String ip, String metodoHttp,
+                               String endpoint, int status,
                                String acao, String detalhe) {
-        salvar(hashUserId(adminId), "/api/v1/admin/**",
-                "POST/PUT/DELETE", 200, ip,
+        salvar(hashUserId(adminId), endpoint, metodoHttp, status, ip,
                 "ADMIN_" + acao, detalhe);
         log.info("Ação administrativa — admin: {} | ação: {} | detalhe: {}",
                 hashUserId(adminId), acao, detalhe);

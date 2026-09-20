@@ -42,7 +42,7 @@ public class FilterConfig {
     @Bean
     public FilterRegistrationBean<RequestLoggingFilter> requestLoggingFilter() {
         FilterRegistrationBean<RequestLoggingFilter> registration =
-                new FilterRegistrationBean<>(new RequestLoggingFilter());
+                new FilterRegistrationBean<>(new RequestLoggingFilter(ipResolver));
         registration.addUrlPatterns("/api/*");
         registration.setOrder(2);
         return registration;

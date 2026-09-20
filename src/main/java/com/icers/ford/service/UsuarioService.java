@@ -11,6 +11,7 @@ import com.icers.ford.model.enums.Role;
 import com.icers.ford.repository.UsuarioRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,7 +55,25 @@ public class UsuarioService {
                 .ativo("S")
                 .build();
 
-        Usuario salvo = usuarioRepository.save(usuario);
+        Usuario salvo;
+        try {
+            // saveAndFlush, não save: com GenerationType.SEQUENCE o
+            // save() só aloca o ID da sequence — o INSERT real fica
+            // pendente pro flush/commit do Hibernate, que só acontece
+            // DEPOIS deste método retornar (dentro do @Transactional).
+            // Um save() simples nunca lançaria a exceção aqui dentro do
+            // catch; ela apareceria tarde demais, em
+            // JpaTransactionManager.doCommit(), fora do try/catch —
+            // confirmado em teste de concorrência real (500 em vez de 409).
+            salvo = usuarioRepository.saveAndFlush(usuario);
+        } catch (DataIntegrityViolationException e) {
+            // Corrida de concorrência: duas requisições pro MESMO email
+            // passaram no existsByEmail() acima antes de qualquer uma
+            // commitar — a constraint única do banco rejeita a segunda.
+            // Relança como EmailJaCadastradoException (409), não um 500
+            // genérico — é exatamente essa a situação real.
+            throw new EmailJaCadastradoException();
+        }
 
         log.info("[AUDITORIA] Usuário criado — id: {} | role: {}",
                 salvo.getId(), salvo.getRole());
@@ -78,7 +97,18 @@ public class UsuarioService {
         usuario.setNome(request.nome());
         usuario.setEmail(request.email());
         usuario.setRole(Role.valueOf(request.role()));
-        Usuario salvo = usuarioRepository.save(usuario);
+
+        Usuario salvo;
+        try {
+            // saveAndFlush — mesmo motivo do criar(): o UPDATE fica
+            // pendente pro flush/commit se não forçarmos aqui dentro.
+            salvo = usuarioRepository.saveAndFlush(usuario);
+        } catch (DataIntegrityViolationException e) {
+            // Mesma corrida de concorrência do criar() — duas
+            // atualizações pro mesmo email novo passaram no
+            // findByEmail() acima antes de qualquer uma commitar.
+            throw new EmailJaCadastradoException();
+        }
 
         log.info("[AUDITORIA] Usuário atualizado — id: {}", id);
 

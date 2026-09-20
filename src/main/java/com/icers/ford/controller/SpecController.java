@@ -8,12 +8,12 @@ import com.icers.ford.dto.response.ErrorResponse;
 import com.icers.ford.dto.response.SpecResponse;
 import com.icers.ford.exception.ArquivoInvalidoException;
 import com.icers.ford.model.Usuario;
-import com.icers.ford.repository.UsuarioRepository;
 import com.icers.ford.service.AuditService;
 import com.icers.ford.service.ConfigService;
 import com.icers.ford.service.IdempotencyService;
 import com.icers.ford.service.SpecService;
 import com.icers.ford.util.IpResolver;
+import com.icers.ford.util.UsuarioResolver;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -53,7 +53,7 @@ public class SpecController {
     private final AuditService auditService;
     private final ConfigService configService;
     private final IdempotencyService idempotencyService;
-    private final UsuarioRepository usuarioRepository;
+    private final UsuarioResolver usuarioResolver;
     private final IpResolver ipResolver;
 
     // POST /api/v1/specs/query
@@ -98,7 +98,7 @@ public class SpecController {
             }
         }
 
-        Usuario usuario = resolverUsuario(userDetails.getUsername());
+        Usuario usuario = usuarioResolver.resolverUsuario(userDetails.getUsername());
         String ip = ipResolver.resolverIp(httpRequest);
 
         SpecResponse response = specService.query(request, usuario, ip);
@@ -237,12 +237,13 @@ public class SpecController {
             @AuthenticationPrincipal UserDetails userDetails,
             HttpServletRequest httpRequest
     ) {
-        Usuario usuario = resolverUsuario(userDetails.getUsername());
+        Usuario usuario = usuarioResolver.resolverUsuario(userDetails.getUsername());
         String ip = ipResolver.resolverIp(httpRequest);
 
         specService.deletarFicha(id);
 
-        auditService.logAdminAction(usuario.getId(), ip, "DELETE_FICHA",
+        auditService.logAdminAction(usuario.getId(), ip, httpRequest.getMethod(),
+                httpRequest.getRequestURI(), 204, "DELETE_FICHA",
                 "Ficha id=" + id + " removida");
 
         return ResponseEntity.noContent().build();
@@ -292,7 +293,7 @@ public class SpecController {
             @Valid @RequestBody ConfigRequest request,
             @AuthenticationPrincipal UserDetails userDetails
     ) {
-        Usuario admin = resolverUsuario(userDetails.getUsername());
+        Usuario admin = usuarioResolver.resolverUsuario(userDetails.getUsername());
 
         ConfigResponse response = configService.atualizarConfig(
                 request.atributosPadrao(), request.intervaloReverificacaoDias(), admin
@@ -345,7 +346,7 @@ public class SpecController {
     ) throws IOException {
         validarPdf(arquivo);
 
-        Usuario usuario = resolverUsuario(userDetails.getUsername());
+        Usuario usuario = usuarioResolver.resolverUsuario(userDetails.getUsername());
         String ip = ipResolver.resolverIp(httpRequest);
 
         SpecResponse response = specService.queryFromPdf(
@@ -389,10 +390,4 @@ public class SpecController {
         }
     }
 
-    private Usuario resolverUsuario(String email) {
-        return usuarioRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException(
-                        "Usuário autenticado não encontrado no banco"
-                ));
-    }
 }

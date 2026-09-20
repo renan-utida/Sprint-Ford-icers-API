@@ -3,9 +3,10 @@ package com.icers.ford.controller;
 import com.icers.ford.dto.request.ChatMessageRequest;
 import com.icers.ford.dto.response.ErrorResponse;
 import com.icers.ford.model.Usuario;
-import com.icers.ford.repository.UsuarioRepository;
 import com.icers.ford.service.ChatService;
 import com.icers.ford.service.ChatService.ChatResponse;
+import com.icers.ford.util.IpResolver;
+import com.icers.ford.util.UsuarioResolver;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -32,7 +33,8 @@ import org.springframework.web.bind.annotation.*;
 public class ChatController {
 
     private final ChatService chatService;
-    private final UsuarioRepository usuarioRepository;
+    private final UsuarioResolver usuarioResolver;
+    private final IpResolver ipResolver;
 
     // POST /api/v1/chat/message
 
@@ -66,8 +68,8 @@ public class ChatController {
             @AuthenticationPrincipal UserDetails userDetails,
             HttpServletRequest httpRequest
     ) {
-        Usuario usuario = resolverUsuario(userDetails.getUsername());
-        String ip = extrairIp(httpRequest);
+        Usuario usuario = usuarioResolver.resolverUsuario(userDetails.getUsername());
+        String ip = ipResolver.resolverIp(httpRequest);
 
         ChatResponse response = chatService.processar(
                 request.mensagem(), usuario, ip
@@ -78,20 +80,4 @@ public class ChatController {
         return ResponseEntity.ok(response);
     }
 
-    // MÉTODOS AUXILIARES
-
-    private Usuario resolverUsuario(String email) {
-        return usuarioRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException(
-                        "Usuário autenticado não encontrado no banco"
-                ));
-    }
-
-    private String extrairIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
-    }
 }

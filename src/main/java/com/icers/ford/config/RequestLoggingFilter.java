@@ -1,5 +1,6 @@
 package com.icers.ford.config;
 
+import com.icers.ford.util.IpResolver;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,6 +17,12 @@ import java.util.Set;
 
 @Slf4j
 public class RequestLoggingFilter extends OncePerRequestFilter {
+
+    private final IpResolver ipResolver;
+
+    public RequestLoggingFilter(IpResolver ipResolver) {
+        this.ipResolver = ipResolver;
+    }
 
     /**
      * Headers que NUNCA devem aparecer nos logs.
@@ -71,7 +78,7 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
                     uri,
                     status,
                     tempoMs,
-                    extrairIp(request)
+                    ipResolver.resolverIp(request)
             );
 
             // WARN para respostas de erro do cliente (4xx) exceto 401/403
@@ -79,13 +86,13 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
             if (status >= 400 && status < 500
                     && status != 401 && status != 403) {
                 log.warn("ERRO_CLIENTE | método={} | endpoint={} | status={} | ip={}",
-                        request.getMethod(), uri, status, extrairIp(request));
+                        request.getMethod(), uri, status, ipResolver.resolverIp(request));
             }
 
             // ERROR para falhas do servidor (5xx)
             if (status >= 500) {
                 log.error("ERRO_SERVIDOR | método={} | endpoint={} | status={} | ip={}",
-                        request.getMethod(), uri, status, extrairIp(request));
+                        request.getMethod(), uri, status, ipResolver.resolverIp(request));
             }
 
             // Copia o response de volta para o stream original
@@ -96,13 +103,5 @@ public class RequestLoggingFilter extends OncePerRequestFilter {
     private boolean isEndpointExcluido(String uri) {
         return ENDPOINTS_EXCLUIDOS.stream()
                 .anyMatch(uri::startsWith);
-    }
-
-    private String extrairIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
     }
 }
