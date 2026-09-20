@@ -171,29 +171,101 @@ checklist, mas afetam qualquer trabalho futuro no projeto):**
   Fix: **File → Invalidate Caches → Invalidate and Restart**. Detalhe em
   `docs/README-provisorio-do-que-foi-feito.md`.
 
-**Achados extras (fora dos 9 grupos, também no checklist):**
-- `ChatController.extrairIp()` e `RequestLoggingFilter.extrairIp()` nunca
-  migrados pro `IpResolver` do Grupo 4 — ainda confiam cegamente em
-  `X-Forwarded-For`, diferente de `RateLimitFilter`/`AuthController`/
-  `SpecController`/`UsuarioController`.
-- `resolverUsuario(String email)` duplicado em pelo menos 3 controllers
-  (`ChatController`, `SpecController`, `UsuarioController`) — candidato a
-  extrair para um serviço único, no espírito do `IpResolver`. Causa raiz:
-  `UserDetailsServiceImpl` usa o `User.builder()` genérico do Spring
-  Security em vez de `Usuario implements UserDetails`.
-- `application.properties` está salvo em ISO-8859-1 (comentários com acento
-  corrompidos) — vale resalvar em UTF-8.
-- `ChatService` reconhece intenção só por palavras-chave hardcoded — não
-  cobre consultas comparativas cruzando o histórico (ex.: "qual pick-up
-  concorrente tem mais torque abaixo de R$300 mil"), do exemplo de "modo
-  chat" da proposta original. Gap conhecido, não precisa resolver agora.
+**Achados extras (fora dos 9 grupos, também no checklist) — 3 de 4 resolvidos:**
+- ~~`ChatController.extrairIp()` e `RequestLoggingFilter.extrairIp()` nunca
+  migrados pro `IpResolver`~~ — **resolvido**: os dois agora usam
+  `IpResolver` (injetado via construtor no `ChatController`; passado
+  manualmente no `RequestLoggingFilter`, que não é `@Component` — mesmo
+  padrão que o `RateLimitFilter` já usava em `FilterConfig`).
+- ~~`resolverUsuario(String email)` duplicado em 3 controllers~~ —
+  **resolvido**: extraído para `com.icers.ford.util.UsuarioResolver`
+  (`@Component`), no espírito do `IpResolver`. `ChatController`,
+  `SpecController` e `UsuarioController` agora injetam `UsuarioResolver`
+  em vez de `UsuarioRepository` diretamente (que era usado *só* pra isso
+  nos três — confirmado antes de remover). `AuthController` continua com
+  `UsuarioRepository` próprio — uso diferente (login), fora do escopo
+  desse achado.
+- ~~`application.properties` em ISO-8859-1~~ — **resolvido**, efeito
+  colateral do Grupo 7 (reconvertido pra UTF-8 real).
+- `ChatService` reconhece intenção só por palavras-chave hardcoded — **movido
+  pra nota da Fase D, item "Revisão geral e melhorias finais"** (adiamento
+  de prioridade, não bloqueio técnico — ver `docs/README-provisorio-do-que-foi-feito.md`).
+
+**Bug real achado durante o teste do achado do `IpResolver`/`UsuarioResolver`
+(não fazia parte do escopo original, corrigido junto):**
+`AuditService.logAdminAction` nunca conseguia gravar no banco — usava
+`"POST/PUT/DELETE"` (15 chars) e `"/api/v1/admin/**"` como placeholders
+fixos de método/endpoint, mas `metodo_http` é `VARCHAR2(10)` **com CHECK
+IN ('GET','POST','PUT','PATCH','DELETE') desde a V4** — nunca poderia ter
+funcionado (ORA-12899 por tamanho, ORA-02290 por valor). O catch genérico
+de `salvar()` engole isso silenciosamente (intencional — audit não deve
+derrubar o fluxo principal), então as 6 ações administrativas que chamam
+essa função (criar/atualizar/desativar/reativar/anonimizar usuário,
+`DELETE /specs/{id}`) **nunca tiveram log de auditoria gravado**, mesmo a
+ação sempre respondendo `2xx` normalmente. Corrigido passando
+`httpRequest.getMethod()`/`getRequestURI()` reais (já disponíveis nos 6
+call sites) em vez dos placeholders. **Isso invalida o ✅ do checklist da
+Fase B para "Trilha de auditoria para ações críticas"** — só passa a ser
+verdade a partir de agora; nada anterior pode ser reconstituído. Confirmado
+em teste manual + `SELECT` direto em `sr_audit_logs` (`ADMIN_CRIAR_USUARIO`
+e `ADMIN_DELETE_FICHA` com `metodo_http`/`endpoint` reais).
+
+**Outro achado do mesmo teste — e a primeira correção não resolveu de
+verdade:** race condition de e-mail duplicado em `UsuarioController` virava
+`500` em vez de `409`. Um primeiro fix (só `try/catch(DataIntegrityViolationException)`
+em volta de `save()`) **continuou dando 500 em teste real** (duas requisições
+com 22ms de diferença). Causa raiz: `Usuario`/`FichaTecnica` usam
+`GenerationType.SEQUENCE` — `save()` só aloca o ID da sequence, o **INSERT
+real fica pendente pro flush/commit**, que só roda depois que o método
+`@Transactional` já retornou (`JpaTransactionManager.doCommit()`), fora de
+qualquer `try/catch` do método. Fix de verdade: `saveAndFlush()` em vez de
+`save()`, forçando o INSERT síncrono dentro do `try`.
+
+**Isso revelou que `SpecService.salvarFicha()` (Grupo 5) tinha o mesmo bug**
+— o `catch(DataIntegrityViolationException)` da corrida de criação de ficha
+nunca foi validado sob concorrência real e tinha o mesmo defeito
+(`fichaTecnicaRepository.save()` sem flush). Corrigido junto com
+`saveAndFlush()`. **A "corrida de concorrência detectada" que o Grupo 5
+declarava como testado nunca tinha sido exercitada por concorrência de
+verdade até agora.**
+
+**Status do teste deste fix específico: corrigido por mecanismo comprovado,
+não por reprodução direta.** 3 tentativas de forçar concorrência real em
+`POST /specs/query` esbarraram na instabilidade já conhecida do Gemini
+(503/JSON malformado interceptando antes das duas chamadas chegarem ao
+`saveAndFlush()`). Aceito como suficiente — mecanismo idêntico e
+determinístico ao já comprovado no `UsuarioService` (mesmo
+`GenerationType.SEQUENCE`, mesma tradução de exceção via Hibernate),
+nenhuma lógica específica de `FichaTecnica` mudaria esse comportamento.
+
+`status_resposta` também era fixo em `200` no `logAdminAction` (errado pra
+criar=201 e desativar/reativar/anonimizar/deletar=204) — mesma classe de
+bug, achada ao conferir os registros no banco; corrigida junto, agora vem
+como parâmetro real dos 6 call sites.
+
+**Gap de design — resolvido:** `SpecResponse` não expunha o `id` da ficha —
+descoberto testando `DELETE /specs/{id}`. Mapeamento prévio confirmou só 6
+call sites (todos em `SpecService`; `salvarFicha()` tinha apenas 1 ponto de
+chamada em todo o projeto) e nenhum outro consumidor precisando de call
+site novo (`ChatService`/`from-pdf` reusam os mesmos métodos;
+`IdempotencyService` guarda o objeto em memória, sem JSON). Campo `id`
+adicionado (primeiro do record) — mudança aditiva, documentada sozinha no
+Swagger. Testado ponta a ponta: cache miss/hit com mesmo id, `history` com
+ids corretos, `compare` sem regressão, `DELETE /specs/{id}` funcionando com
+o id vindo direto da resposta da API.
 
 **Fase C (não iniciada):** decidir se adiciona perfil H2 em memória para dev
 antes de escrever testes unitários (hoje dependeriam do Oracle real).
 
 **Fase D (não iniciada):** README final, revisão geral, conferência contra
 os requisitos da Sprint 3 (última sprint com requisitos técnicos específicos
-por matéria — Sprint 4 é só vídeo pitch).
+por matéria — Sprint 4 é só vídeo pitch). Duas notas registradas pro item
+"Revisão geral e melhorias finais":
+- Gap do `ChatService` (palavras-chave hardcoded, não cobre consultas
+  comparativas cruzando histórico) — adiado por prioridade, não bloqueio.
+- Grupo 8 (grounding) — reavaliar se o Gemini pago for adotado pra
+  apresentação da banca (cota zero era do tier gratuito); status atual
+  ("avaliado e descartado") continua correto pro tier gratuito de hoje.
 
 ## Onde estão os documentos de referência
 
