@@ -254,8 +254,88 @@ Swagger. Testado ponta a ponta: cache miss/hit com mesmo id, `history` com
 ids corretos, `compare` sem regressão, `DELETE /specs/{id}` funcionando com
 o id vindo direto da resposta da API.
 
-**Fase C (não iniciada):** decidir se adiciona perfil H2 em memória para dev
-antes de escrever testes unitários (hoje dependeriam do Oracle real).
+**Fase C — 🚧 em andamento.** Decisão sobre banco de teste: **nem H2 nem
+Testcontainers** — mapeamento mostrou que 6 das 9 migrations (V1, V2, V3,
+V4, V6, V8, não só as 5 que eu tinha contado originalmente — esqueci o V4
+na primeira análise) tinham sintaxe Oracle-específica (bloco PL/SQL de
+sequence, `ADD (...)`/`MODIFY (...)`) sem equivalente em H2. **Esse
+mapeamento também ficou incompleto** — era só leitura/grep, nunca boot real
+contra H2. Só apareceu que a **V7** também não era portável (índice
+funcional `UPPER(...)`, sem equivalente em H2) quando o perfil `dev-h2` foi
+implementado e testado de verdade (ver abaixo). Total real: **7 de 9**.
+Caminho escolhido: reescrever essas migrations num formato já portável
+(`GENERATED ... AS IDENTITY`, ANSI, suportado nativamente por Oracle 12c+ e
+H2), inspirado no padrão que o Código 1 já usa — elimina duplicação de
+migrations (problema do H2) e necessidade de container (problema do
+Testcontainers), sem trocar de banco.
+
+Feito: 6 migrations reescritas (sequence/PL/SQL removidos; V8 simplificado
+de 3 passos pra 1, já que `sr_fichas_tecnicas` está sempre vazia nesse
+ponto da sequência de migrations numa reaplicação do zero); 5 entidades
+JPA trocadas de `GenerationType.SEQUENCE` pra `IDENTITY`
+(`RefreshTokenUsado` não afetada, usa chave natural). `ddl-auto` continua
+`validate`, por decisão explícita.
+
+**Concluído:** os dois resets feitos (antes e depois da reescrita), os dois
+com `flyway validate`/`ddl-auto=validate` limpos contra o Oracle real
+(19.3). Concorrência real retestada: **`sr_usuarios` reproduzida de
+verdade** (18ms de intervalo, `201`+`409`, sem stack trace de erro não
+tratado — mais limpo que a rodada com `SEQUENCE`); **`sr_fichas_tecnicas`
+aceita por analogia** (mesmo obstáculo de instabilidade do Gemini
+impedindo reprodução direta, pela 2ª vez — mesmo raciocínio de mecanismo
+idêntico já usado e confirmado correto na rodada anterior). Nota: como
+`saveAndFlush()` nunca foi removido do código, o teste confirma que a
+correção continua funcionando, mas não isola se `IDENTITY` sozinho (sem
+`saveAndFlush`) já bastaria — curiosidade teórica deixada em aberto de
+propósito, sem efeito prático (`saveAndFlush` continua mantido de
+qualquer jeito).
+
+**Perfil `dev-h2` — ✅ concluído e testado.** Objetivo original da Fase C
+(H2 real + Console pra quem não tem acesso ao Oracle FIAP, igual o Código
+1) — a portabilidade do schema acima era só pré-requisito. **Decisão de
+timing:** `application-dev.properties` continua Oracle por enquanto
+(desenvolvimento ativo, rotina de teste depende dele) — `dev-h2` é um
+perfil ADICIONAL, não substitui `dev`. A virada de verdade (`dev` virar H2,
+igual Código 1) fica planejada pro **fim do projeto**, quando o código
+estiver mais estável — não esquecer disso na hora (também comentado no
+código, `SprintFordApiApplication`, bloco do banner).
+
+Feito: dependência H2 no `pom.xml`; `application-dev-h2.properties` novo
+(H2 em memória, `H2Dialect`/`PUBLIC` sobrescrevendo a base Oracle-específica,
+Console em `/h2-console`); `SecurityConfig` com `SecurityFilterChain`
+dedicada só pro Console (CSRF off + `SAMEORIGIN` restritos a esse path);
+banner (`SprintFordApiApplication`) mostrando "Banco: H2" e as credenciais
+do Console só nesse perfil.
+
+**Três bugs reais, nenhum visível por leitura de código — só apareceram ao
+subir de verdade contra H2:**
+1. Log completamente mudo no boot (parecia travado) — `logback-spring.xml`
+   só tinha `<springProfile name="dev">`/`"prod"`, nenhum casava com
+   `dev-h2` → zero appenders. App rodava por baixo (confirmado via `curl`
+   direto), só não aparecia nada no console. Fix: `name="dev,dev-h2"`.
+2. V7 reescrita (ver correção acima) — 3 colunas computadas
+   (`GENERATED ALWAYS AS (UPPER(...))`, sem `VIRTUAL` — testado ao vivo
+   contra o Oracle real da FIAP antes de assumir que seria opcional lá) +
+   índice único simples sobre elas, em vez do índice direto na expressão.
+3. `ddl-auto=validate` rejeitava `id` e mais 5 colunas `NUMBER(n)` **só sob
+   H2** — `NUMBER` (Oracle/H2) sempre reporta como `NUMERIC` via JDBC, mas
+   `H2Dialect` espera `BIGINT`/`INTEGER` por padrão pra `Long`/`Integer`
+   (`OracleDialect` já esperava `NUMERIC`, por isso nunca deu problema nos
+   resets anteriores). Fix: `@JdbcTypeCode(SqlTypes.NUMERIC)` em 6 campos.
+4. H2 Console dava `401` mesmo com chain dedicada + `permitAll` —
+   `securityMatcher` baseado em string resolve via `MvcRequestMatcher`
+   (dispatch do Spring MVC), mas o Console é um Servlet puro, fora do
+   `@RequestMapping`. Fix: `AntPathRequestMatcher` explícito.
+
+Testado com 3º reset completo do Oracle (V7 mudou de conteúdo → checksum
+Flyway diferente): perfil `dev` pós-reset com boot limpo + login OK; perfil
+`dev-h2` com boot limpo, 9 migrations aplicando, Console acessível com as 7
+tabelas, login OK via navegador e Insomnia, banner mostrando as credenciais
+do H2 só nesse perfil.
+
+**Próximo passo da Fase C:** implementação de testes unitários
+automatizados (schema agora portável e validado, perfil `dev-h2` disponível
+como opção adicional).
 
 **Fase D (não iniciada):** README final, revisão geral, conferência contra
 os requisitos da Sprint 3 (última sprint com requisitos técnicos específicos
