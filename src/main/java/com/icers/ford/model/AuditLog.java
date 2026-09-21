@@ -5,6 +5,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 
@@ -22,13 +24,11 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class AuditLog {
 
+    // NUMERIC em vez do BIGINT padrão do H2Dialect para Long — ver
+    // comentário equivalente em Usuario.java.
     @Id
-    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "seq_audit")
-    @SequenceGenerator(
-            name = "seq_audit",
-            sequenceName = "seq_audit_id",
-            allocationSize = 1
-    )
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @JdbcTypeCode(SqlTypes.NUMERIC)
     @Column(name = "id")
     private Long id;
 
@@ -45,6 +45,9 @@ public class AuditLog {
     @Column(name = "metodo_http", nullable = false, length = 10)
     private String metodoHttp;
 
+    // NUMERIC em vez do INTEGER padrão do H2Dialect — ver comentário do
+    // id em Usuario.java.
+    @JdbcTypeCode(SqlTypes.NUMERIC)
     @Column(name = "status_resposta", nullable = false)
     private Integer statusResposta;
 

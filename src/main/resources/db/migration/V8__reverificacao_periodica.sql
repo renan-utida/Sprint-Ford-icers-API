@@ -11,21 +11,24 @@
 --    só adota o valor novo na sua próxima reverificação — não
 --    imediatamente. É por isso que o intervalo mora nas DUAS tabelas,
 --    não só numa referência de uma pra outra.
+--
+-- Reescrita (Fase C, portabilidade Oracle/H2): a versão original desta
+-- migration adicionava a coluna em sr_fichas_tecnicas como NULLABLE,
+-- fazia UPDATE pra preencher com 15, e só depois trocava pra NOT NULL
+-- com MODIFY (Oracle) — desenhada pra rodar contra uma tabela JÁ
+-- POPULADA em produção. MODIFY (Oracle) não tem equivalente direto em
+-- ANSI/H2 (que usa ALTER COLUMN), então essa forma travava a
+-- portabilidade. Como sr_fichas_tecnicas está sempre vazia neste ponto
+-- da sequência de migrations (V8 roda antes de qualquer ficha real
+-- existir), o mesmo estado final é obtido com um único ADD ... DEFAULT
+-- ... NOT NULL, sem UPDATE nem MODIFY — igual ao padrão já usado abaixo
+-- para sr_config.
 
 ALTER TABLE sr_config
-    ADD (intervalo_reverificacao_dias NUMBER DEFAULT 15 NOT NULL);
+    ADD intervalo_reverificacao_dias NUMBER DEFAULT 15 NOT NULL;
 
 ALTER TABLE sr_fichas_tecnicas
-    ADD (intervalo_reverificacao_dias NUMBER);
-
-UPDATE sr_fichas_tecnicas
-SET intervalo_reverificacao_dias = 15
-WHERE intervalo_reverificacao_dias IS NULL;
-
-COMMIT;
-
-ALTER TABLE sr_fichas_tecnicas
-    MODIFY (intervalo_reverificacao_dias NUMBER NOT NULL);
+    ADD intervalo_reverificacao_dias NUMBER DEFAULT 15 NOT NULL;
 
 COMMENT ON COLUMN sr_config.intervalo_reverificacao_dias IS
     'Dias até uma ficha ser considerada desatualizada e reverificada na próxima consulta. Editável pelo ADMIN, 2 a 31 dias.';

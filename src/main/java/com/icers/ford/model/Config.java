@@ -5,6 +5,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDateTime;
 
@@ -22,13 +24,11 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class Config {
 
+    // NUMERIC em vez do BIGINT padrão do H2Dialect para Long — ver
+    // comentário equivalente em Usuario.java.
     @Id
-    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "seq_config")
-    @SequenceGenerator(
-            name = "seq_config",
-            sequenceName = "seq_config_id",
-            allocationSize = 1
-    )
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @JdbcTypeCode(SqlTypes.NUMERIC)
     @Column(name = "id")
     private Long id;
 
@@ -46,6 +46,9 @@ public class Config {
      * validado no ConfigService antes de salvar. Fichas já criadas
      * não são afetadas por uma mudança aqui (ver FichaTecnica).
      */
+    // NUMERIC em vez do INTEGER padrão do H2Dialect — ver comentário do
+    // id em Usuario.java.
+    @JdbcTypeCode(SqlTypes.NUMERIC)
     @Column(name = "intervalo_reverificacao_dias", nullable = false)
     private Integer intervaloReverificacaoDias;
 
