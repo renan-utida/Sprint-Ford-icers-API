@@ -70,6 +70,13 @@
 			<scope>runtime</scope>
 		</dependency>
 
+		<!-- H2 (perfil dev-h2 — opção adicional em memória, ver application-dev-h2.properties) -->
+		<dependency>
+			<groupId>com.h2database</groupId>
+			<artifactId>h2</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+
 		<!-- FLYWAY (core + Oracle) -->
 		<dependency>
 			<groupId>org.flywaydb</groupId>

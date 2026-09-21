@@ -6,6 +6,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
@@ -20,6 +21,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -38,7 +40,41 @@ public class SecurityConfig {
     @Value("${cors.allowed-origins:http://localhost:3000,http://localhost:8081}")
     private String allowedOriginsStr;
 
+    /**
+     * Chain dedicada e mais permissiva, só para o H2 Console — existe de fato
+     * apenas quando o perfil dev-h2 está ativo (spring.h2.console.enabled=true);
+     * nos demais perfis a rota nem é registrada, então esta chain nunca casa
+     * com nada. Isolada da chain principal (@Order(1) = avaliada primeiro) para
+     * que o afrouxamento de CSRF/frame-options fique restrito a este path, sem
+     * enfraquecer esses headers no resto da API.
+     */
     @Bean
+    @Order(1)
+    public SecurityFilterChain h2ConsoleFilterChain(HttpSecurity http) throws Exception {
+        http
+                // AntPathRequestMatcher explícito — o padrão do Spring Security
+                // 6.x (MvcRequestMatcher, via string) resolve o caminho através
+                // do dispatch do Spring MVC, mas o H2 Console é um Servlet puro
+                // (registrado fora do @RequestMapping), então o MvcRequestMatcher
+                // nunca reconhece o caminho e a request cai na chain principal
+                // (confirmado: 401 vindo da chain errada até essa troca).
+                .securityMatcher(new AntPathRequestMatcher("/h2-console/**"))
+                // Console usa formulários HTML tradicionais, não JWT — CSRF do
+                // Spring Security bloquearia o próprio login do console.
+                .csrf(AbstractHttpConfigurer::disable)
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                // Console roda em <iframe> — o X-Frame-Options: DENY padrão
+                // bloquearia o navegador de renderizá-lo. sameOrigin() ainda
+                // impede que outro site nos enquadre (clickjacking).
+                .headers(headers -> headers
+                        .frameOptions(frame -> frame.sameOrigin())
+                );
+
+        return http.build();
+    }
+
+    @Bean
+    @Order(2)
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 // API stateless — CSRF desabilitado

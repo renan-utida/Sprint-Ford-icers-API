@@ -21,6 +21,10 @@ public class SprintFordApiApplication {
 		boolean sslAtivo = Boolean.parseBoolean(env.getProperty("server.ssl.enabled", "false"));
 		boolean swaggerAtivo = Boolean.parseBoolean(env.getProperty("springdoc.swagger-ui.enabled", "true"));
 		String protocolo = sslAtivo ? "https" : "http";
+		// dev-h2 é um perfil ADICIONAL (Fase C) — dev continua Oracle por
+		// enquanto. Quando a virada de verdade acontecer (dev = H2, fim do
+		// projeto), migrar esse bloco todo pra dentro do "if" do perfil dev.
+		boolean isDevH2 = "dev-h2".equalsIgnoreCase(perfil);
 
 		System.out.println("\n========================================================");
 		System.out.println("			SpecRadar API — Ford FIAP 2026				");
@@ -39,8 +43,19 @@ public class SprintFordApiApplication {
 		System.out.println("Login (ADMIN):    	  admin@specradar.com   / Admin@2026");
 		System.out.println("--------------------------------------------------------");
 		System.out.println("Perfil ativo:  " + perfil.toUpperCase() + " (" + protocolo.toUpperCase() + ", porta " + porta + ")");
-		System.out.println("Banco:         Oracle FIAP (usuário: " + env.getProperty("spring.datasource.username") + ")");
+		if (isDevH2) {
+			System.out.println("Banco:         H2 em memória (usuário: sa)");
+		} else {
+			System.out.println("Banco:         Oracle FIAP (usuário: " + env.getProperty("spring.datasource.username") + ")");
+		}
 		System.out.println("LLM:           Google Gemini 3.7 Flash (gratuito)");
+
+		if (isDevH2) {
+			System.out.println("--------------------------------------------------------");
+			System.out.println("H2 Console:    " + protocolo + "://localhost:" + porta + "/h2-console");
+			System.out.println("JDBC URL:      jdbc:h2:mem:specradar");
+			System.out.println("Usuário:       sa (senha em branco)");
+		}
 
 		if (sslAtivo) {
 			System.out.println("--------------------------------------------------------");
