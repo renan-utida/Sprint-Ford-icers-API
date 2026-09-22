@@ -2,7 +2,7 @@
 
 > API de inteligência competitiva para especificações técnicas de veículos — desenvolvida para o desafio Ford × FIAP 2026.
 
-**Status:** 🚧 Em desenvolvimento ativo — Fase B concluída (Grupos 1–9 de 9). Fase C em andamento — schema portável e perfil `dev-h2` implementados e testados; testes unitários automatizados ainda não iniciados.
+**Status:** 🚧 Em desenvolvimento ativo — Fase B concluída (Grupos 1–9 de 9). Fase C concluída — schema portável, perfil `dev-h2` e suíte de testes unitários (171/171 passando) implementados e testados.
 **Este README é provisório.** Será revisado, completado e organizado de forma definitiva na Fase D, depois que o projeto estiver totalmente estabilizado (ver [Roadmap](#roadmap-do-projeto) abaixo).
 
 **Aluno responsável:** Renan Dias Utida (RM 558540) — Cybersecurity / Arquitetura Orientada a Serviços (SOA)
@@ -234,7 +234,7 @@ Checklist contra os requisitos formais de Cybersecurity/SOA (documento com pontu
 | 8 | Grounding real de busca no Gemini (item 1) e sensor de demanda preditiva (item 2) — **investigados e descartados**, não por falta de esforço de design mas por limitação real confirmada da conta/tier (ver evidência abaixo) | ✅ Avaliado e descartado — ver [evidência dos 7 testes](#grupo-8--investigação-de-grounding-evidência-completa) |
 | 9 | `POST /specs/from-pdf` implementado (multipart, cache-primeiro, rate limit próprio de 10/min, magic-bytes + content-type validados antes de gastar chamada multimodal, mensagem de erro específica no 503) | ✅ Concluído — testado (arquivo inválido → 422, arquivo grande → 413, cache hit/miss com PDF texto → 200, PDF com foto → 503 com mensagem específica, rate limit 429 independente do `/query` confirmado na prática, RBAC ANALYST+ADMIN) — ver [evidência da investigação de multimodal](#grupo-9--investigação-de-confiabilidade-multimodal-evidência-completa) |
 
-### Fase C — Decisões de portabilidade e robustez — 🚧 EM ANDAMENTO (schema portável e perfil `dev-h2` concluídos e testados; testes unitários automatizados ainda não iniciados)
+### Fase C — Decisões de portabilidade e robustez — ✅ CONCLUÍDA (schema portável, perfil `dev-h2` e suíte de testes unitários — 171/171 — todos concluídos e testados)
 
 **Decisão sobre banco de desenvolvimento/teste — não é H2.** Avaliamos 3
 caminhos pra não depender do Oracle FIAP em testes: H2 em memória,
@@ -314,7 +314,7 @@ O que isso mudou:
     reforçado por uma segunda confirmação direta (o teste de `sr_usuarios`
     acima) de que o padrão generaliza de forma confiável entre as duas
     entidades.
-- Implementação de testes unitários automatizados — próximo passo da Fase C, agora que o comportamento manual está validado (Fases A/B) e o schema portável está confirmado nas duas rodadas de reset.
+- Implementação de testes unitários automatizados — ver seção dedicada logo abaixo (concluída).
 
 **Perfil `dev-h2` — ✅ Concluído e testado.** O objetivo original da Fase C
 incluía um perfil de desenvolvimento com H2 real (Console incluso), pra quem
@@ -395,6 +395,56 @@ reset completo de novo):
 - Banner: `Perfil ativo: DEV-H2`, `Banco: H2 em memória (usuário: sa)`,
   bloco do Console (`H2 Console`/`JDBC URL`/`Usuário`) aparecendo só nesse
   perfil.
+
+**Testes unitários automatizados — ✅ Concluído. 171/171 passando, 0
+falhas.** Suíte no padrão JUnit Platform Suite (`@Suite`+`@SelectPackages`),
+espelhando a estrutura já usada no Código 1: classe central
+`com.icers.ford.SuiteDeTestesGeral` na raiz de `src/test/java`, um arquivo
+de teste por classe de produção, organizado nas mesmas pastas de pacote de
+`src/main/java`. Todos os repositories mockados via Mockito — **nenhum
+teste toca o Oracle real da FIAP**; o único teste que sobe um `ApplicationContext`
+de verdade (`SprintFordApiApplicationTests`, o smoke test padrão do Spring
+Initializr) foi corrigido com `@ActiveProfiles("dev-h2")` para nunca
+apontar pro Oracle.
+
+11 classes de produção cobertas: `AesEncryptionService`, `JwtService`,
+`CamposJsonEncryptedConverter`, `IdempotencyService`, `LoginLockoutService`,
+`ConfigService`, `UsuarioService`, `AuditService`, `GlobalExceptionHandler`,
+`ChatService`, `SpecService` (a maior e mais complexa — cache
+hit/miss/parcial/expirada, concorrência, rate limiting, comparação entre
+veículos, escrita dividida em 3 partes ao longo da sessão por causa do
+tamanho).
+
+Dois testes de **regressão** travando bugs reais já corrigidos nesta mesma
+sessão de trabalho (achados extras, fora dos 9 grupos da Fase B):
+- `UsuarioServiceTest` — a race condition de e-mail duplicado
+  (`GenerationType.SEQUENCE`/`IDENTITY` + `save()` só alocava o ID, o
+  INSERT real acontecia tarde demais pro `catch` pegar — corrigido com
+  `saveAndFlush()`). Simula `saveAndFlush()` lançando
+  `DataIntegrityViolationException` e confirma que vira `409`
+  (`EmailJaCadastradoException`), nunca um `500`.
+- `AuditServiceTest` — os placeholders fixos inválidos de
+  `logAdminAction` (`"POST/PUT/DELETE"`/`"/api/v1/admin/**"`, que violavam
+  o `CHECK` de `metodo_http` e nunca gravavam nada de verdade). Confirma
+  que os valores gravados são exatamente os parâmetros reais recebidos do
+  controller.
+
+**Gaps conhecidos, documentados como `// TODO` nos próprios arquivos de
+teste** (decisão consciente, não esquecimento — registrado pra não se
+perder de vista):
+- `IdempotencyServiceTest` e `LoginLockoutServiceTest` não cobrem a
+  expiração real de suas entradas em memória (24h e 30s, respectivamente) —
+  sem um `Clock` injetável nas classes de produção, a única forma seria
+  reflection nos `Instant` internos (frágil em `IdempotencyService`, que
+  guarda um record privado aninhado; mais simples em `LoginLockoutService`,
+  que usa um `Map<String, Instant>` direto). Decisão: não vale o esforço
+  agora — reconsiderar junto com uma eventual refatoração pra `Clock`
+  injetável, como melhoria de design separada.
+- `ChatServiceTest` cobre a extração de intenção por amostragem
+  representativa, não as ~44 palavras-chave nem todas as marcas/modelos do
+  mapa hardcoded — o próprio reconhecimento por keyword já é um gap de
+  design documentado (ver achados extras da Fase B), não algo que a
+  cobertura de teste devesse mascarar como "resolvido".
 
 ### Fase D — Fechamento — ⏳ NÃO INICIADA
 
@@ -571,4 +621,4 @@ falha maior que catálogos tabulares/texto (ver decisões de design abaixo).
 - **Sem grounding de busca real** — o Gemini responde com base no próprio conhecimento de treinamento, não com busca ao vivo. Isso já causou dados desatualizados ou levemente incorretos em alguns testes (ex: nome de motor). Investigado no Grupo 8 da Fase B e **confirmado como limitação estrutural da conta/tier atual** (ver [evidência completa](#grupo-8--investigação-de-grounding-evidência-completa)) — não implementado. **Possível revisão na Fase D** se o Gemini pago for adotado pra apresentação da banca (ver nota no roadmap da Fase D) — status atual continua correto pro tier gratuito de hoje.
 - **Extração multimodal de PDF é instável quando o arquivo contém imagens embutidas** — confirmado por investigação dedicada do Grupo 9 (ver [evidência completa](#grupo-9--investigação-de-confiabilidade-multimodal-evidência-completa)); PDFs de texto/tabela funcionam de forma confiável.
 - **Identificação de veículo por "Ano" não implementada** — avaliada em profundidade, mas até uma versão "simples" (campo opcional) esbarra na mesma pergunta de fundo sem resposta boa sem interação (o que "sem ano" deveria significar — o ano mais recente, ou uma categoria própria?). O fluxo conversacional completo (perguntar ao usuário, sugerir modelos, decidir "mais recente" automaticamente) foi **deliberadamente adiado para o fim da Fase D**, depois que o restante do sistema estiver mais maduro.
-- **Sem testes automatizados ainda** — Fase C, pendente.
+- ~~Sem testes automatizados~~ — **resolvido na Fase C**: 171 testes unitários (Mockito, sem tocar o Oracle real), 11 classes de serviço/segurança/exceção cobertas — ver [Fase C](#fase-c--decisões-de-portabilidade-e-robustez).

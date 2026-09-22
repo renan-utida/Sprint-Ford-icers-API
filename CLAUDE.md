@@ -254,7 +254,7 @@ Swagger. Testado ponta a ponta: cache miss/hit com mesmo id, `history` com
 ids corretos, `compare` sem regressão, `DELETE /specs/{id}` funcionando com
 o id vindo direto da resposta da API.
 
-**Fase C — 🚧 em andamento.** Decisão sobre banco de teste: **nem H2 nem
+**Fase C — ✅ concluída.** Decisão sobre banco de teste: **nem H2 nem
 Testcontainers** — mapeamento mostrou que 6 das 9 migrations (V1, V2, V3,
 V4, V6, V8, não só as 5 que eu tinha contado originalmente — esqueci o V4
 na primeira análise) tinham sintaxe Oracle-específica (bloco PL/SQL de
@@ -333,9 +333,38 @@ Flyway diferente): perfil `dev` pós-reset com boot limpo + login OK; perfil
 tabelas, login OK via navegador e Insomnia, banner mostrando as credenciais
 do H2 só nesse perfil.
 
-**Próximo passo da Fase C:** implementação de testes unitários
-automatizados (schema agora portável e validado, perfil `dev-h2` disponível
-como opção adicional).
+**Testes unitários automatizados — ✅ concluído. 171/171 passando, 0
+falhas.** Suíte JUnit Platform Suite (`@Suite`+`@SelectPackages`, mesmo
+padrão do Código 1): `com.icers.ford.SuiteDeTestesGeral` na raiz de
+`src/test/java`, um arquivo de teste por classe de produção. Todos os
+repositories mockados via Mockito — nenhum teste toca o Oracle real;
+`SprintFordApiApplicationTests` (smoke test padrão do Initializr, `@SpringBootTest`)
+corrigido com `@ActiveProfiles("dev-h2")` — sem isso, subiria contra o
+Oracle real por padrão.
+
+11 classes cobertas: `AesEncryptionService`, `JwtService`,
+`CamposJsonEncryptedConverter`, `IdempotencyService`, `LoginLockoutService`,
+`ConfigService`, `UsuarioService`, `AuditService`, `GlobalExceptionHandler`,
+`ChatService`, `SpecService` (a mais complexa, escrita em 3 partes ao longo
+da sessão: cache hit/miss/parcial/expirada; concorrência + rate limiting;
+findByVeiculo/compare/histórico/deleção).
+
+Dois testes de regressão travando bugs reais desta mesma sessão:
+`UsuarioServiceTest` (race condition de e-mail duplicado — `saveAndFlush()`
+em vez de `save()`, confirmado simulando `DataIntegrityViolationException`
+e checando `409` em vez de `500`) e `AuditServiceTest` (placeholders fixos
+inválidos de `logAdminAction` que violavam o `CHECK` de `metodo_http` e
+nunca gravavam nada — confirmado checando que os valores gravados são os
+parâmetros reais recebidos).
+
+Gaps documentados como `// TODO` nos próprios arquivos de teste (decisão
+consciente): `IdempotencyServiceTest`/`LoginLockoutServiceTest` não cobrem
+expiração real (24h/30s) por falta de `Clock` injetável nas classes de
+produção — reflection nos `Instant` internos foi descartada por frágil;
+reconsiderar junto com uma refatoração pra `Clock` injetável, se algum dia
+fizer sentido. `ChatServiceTest` cobre extração de intenção por amostragem,
+não as ~44 palavras-chave do mapa hardcoded (mesmo gap de design já
+documentado acima, não escondido pela cobertura de teste).
 
 **Fase D (não iniciada):** README final, revisão geral, conferência contra
 os requisitos da Sprint 3 (última sprint com requisitos técnicos específicos
