@@ -378,7 +378,7 @@ por matéria — Sprint 4 é só vídeo pitch). Duas notas registradas pro item
 
 ## Onde estão os documentos de referência
 
-- `docs/README.md` — índice de tudo em `docs/`, comece por aqui.
+- `docs/README-documentacao.md` — índice de tudo em `docs/`, comece por aqui.
 - `docs/README-provisorio-do-que-foi-feito.md` — estado atual mais confiável
   e atualizado (arquitetura, endpoints, segurança, roadmap, decisões de
   design registradas). **Consultar primeiro** em qualquer sessão nova.
