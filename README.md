@@ -538,3 +538,111 @@ O schema roda, sem modificação nenhuma, tanto contra o Oracle de produção qu
 **`NUMERIC` explícito via `@JdbcTypeCode` em 6 campos, só necessário sob H2.** `NUMBER`/`NUMBER(n)` do Oracle e do H2 sempre reportam como `NUMERIC` via JDBC — mas o `H2Dialect` espera `BIGINT`/`INTEGER` por padrão para campos Java `Long`/`Integer`, enquanto o `OracleDialect` já esperava `NUMERIC` (por isso o mesmo mapeamento nunca deu problema contra o Oracle). Com `spring.jpa.hibernate.ddl-auto=validate` ativo nos dois perfis, essa divergência de expectativa faria o boot falhar só sob H2. Correção: `@JdbcTypeCode(SqlTypes.NUMERIC)` no `id` das 5 entidades com `IDENTITY`, mais em `HistoricoConsulta.tempoRespostaMs`, `AuditLog.statusResposta` e os dois campos `intervaloReverificacaoDias` (`Config` e `FichaTecnica`) — força o Hibernate a validar como `NUMERIC` nos dois bancos, sem alterar nenhuma migration.
 
 `spring.jpa.hibernate.ddl-auto=validate` é mantido em todos os perfis — o schema em runtime nunca pode divergir silenciosamente do que o Flyway aplicou; qualquer incompatibilidade real (como as duas descritas acima) derruba o boot da aplicação em vez de deixar a divergência passar despercebida.
+
+---
+
+## Autenticação e autorização
+
+### Fluxo de login
+
+`POST /auth/login` recebe email e senha, autentica via `AuthenticationManager` do Spring Security (que valida a senha com BCrypt através do `UserDetailsServiceImpl`) e, se bem-sucedido, gera um par de tokens (access + refresh), atualiza o `ultimo_acesso` do usuário e registra o evento em auditoria. Falhas de credencial retornam sempre a mesma mensagem genérica (`"Email ou senha inválidos."`) — o endpoint nunca revela se o problema foi o email não existir ou a senha estar errada, o que impediria um atacante de usar o login para descobrir quais emails são contas válidas.
+
+### Access token e refresh token
+
+Dois tokens JWT, cada um com uma claim `type` própria (`ACCESS`/`REFRESH`) — um não pode ser usado no lugar do outro, porque a validação checa o tipo explicitamente antes de aceitar o token. O algoritmo de assinatura **não é fixado explicitamente no código** — `JwtService` constrói a chave com `Keys.hmacShaKeyFor(secret...)` e assina com `.signWith(signingKey)` (sem informar um algoritmo), então o próprio JJWT seleciona automaticamente o HMAC mais forte que o tamanho da chave permite. Com o `JWT_SECRET` gerado como o projeto recomenda (`openssl rand -base64 64`), isso resulta em **HS512** na prática — confirmado decodificando o header de um token emitido de verdade (`{"alg":"HS512"}`), não apenas inferido do código:
+
+```java
+// JwtService.java
+this.signingKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+// ...
+return Jwts.builder()
+        .claims(extraClaims)
+        .subject(subject)
+        .issuedAt(now)
+        .expiration(expiresAt)
+        .signWith(signingKey)   // sem algoritmo explícito — JJWT escolhe HS512 pela força da chave
+        .compact();
+```
+
+| Token | Expiração | Claims | Uso |
+|---|---|---|---|
+| Access | 8 horas (`28800000` ms) | `userId`, `role`, `type=ACCESS` | Enviado em `Authorization: Bearer <token>` em toda requisição autenticada |
+| Refresh | 7 dias (`604800000` ms) | `jti` (UUID único), `type=REFRESH` | Usado só em `POST /auth/refresh` para obter um par novo |
+
+```java
+// JwtService.java
+public String generateAccessToken(Long userId, String email, String role) {
+    return buildToken(Map.of("userId", userId, "role", role, "type", "ACCESS"),
+            email, accessTokenExpiration);
+}
+
+public String generateRefreshToken(String email) {
+    return buildToken(Map.of("type", "REFRESH", "jti", UUID.randomUUID().toString()),
+            email, refreshTokenExpiration);
+}
+```
+
+O access token carrega o `role` do usuário — qualquer cliente (inclusive um app mobile) pode ler a permissão do usuário sem uma requisição extra.
+
+### Rotação e revogação de refresh token
+
+`POST /auth/refresh` implementa rotação real: cada chamada emite um par de tokens inteiramente novo e **invalida permanentemente** o refresh token apresentado, mesmo que ele ainda não tivesse expirado naturalmente. A revogação é feita registrando o `jti` (o identificador único do token, um UUID) na tabela `sr_refresh_tokens_usados` — reapresentar o mesmo `jti` depois é rejeitado:
+
+```java
+// AuthController.java — POST /auth/refresh
+String jti = jwtService.extractJti(token);
+
+if (jti != null && refreshTokenUsadoRepository.existsById(jti)) {
+    // token já rotacionado antes — reuso é sinal de possível token comprometido
+    return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(/* mensagem genérica */);
+}
+
+// ... valida usuário, então marca ESTE token como usado ANTES de emitir o par novo
+refreshTokenUsadoRepository.save(RefreshTokenUsado.builder().jti(jti).expiraEm(expiraEm).build());
+```
+
+O `jti` do token apresentado é marcado como usado **antes** de o par novo ser gerado — prioriza nunca deixar uma janela onde o token antigo ainda funcionaria, mesmo que algo falhe logo em seguida. A mesma escrita aproveita para limpar oportunisticamente (`deleteByExpiraEmBefore`) entradas de tokens que já teriam expirado de qualquer forma, sem precisar de um job agendado à parte. Reuso de um `jti` já rotacionado recebe a mesma mensagem genérica de qualquer outro token inválido — o possível atacante não recebe informação sobre o motivo específico da rejeição, só o log interno é mais detalhado.
+
+### RBAC
+
+Dois papéis — `ADMIN` e `ANALYST` (enum `Role`) — com autorização checada via `@PreAuthorize` diretamente em cada método de controller, não apenas por path em `SecurityConfig`. Isso garante que a regra de acesso vive junto do endpoint que ela protege, reduzindo o risco de um endpoint novo ficar aberto por esquecimento — a postura padrão de `SecurityConfig` já exige autenticação (`.anyRequest().authenticated()`) para qualquer rota sem regra explícita; a autorização fina por papel é sempre responsabilidade do `@PreAuthorize`:
+
+```java
+// UsuarioController.java
+@PreAuthorize("hasRole('ADMIN')")
+@PostMapping
+public ResponseEntity<UsuarioResponse> criar(...) { ... }
+
+// SpecController.java
+@PreAuthorize("hasAnyRole('ANALYST', 'ADMIN')")
+@PostMapping("/query")
+public ResponseEntity<SpecResponse> query(...) { ... }
+
+@PreAuthorize("hasRole('ADMIN')")
+@DeleteMapping("/{id}")
+public ResponseEntity<Void> deletar(...) { ... }
+```
+
+| Ação | ANALYST | ADMIN |
+|---|:---:|:---:|
+| Login / refresh | ✅ | ✅ |
+| `POST /specs/query`, `/from-pdf`, `/chat/message` | ✅ | ✅ |
+| `GET /specs/{marca}/{modelo}/{versao}`, `/compare`, `/history` | ✅ | ✅ |
+| `DELETE /specs/{id}` | ❌ | ✅ |
+| `GET`/`PUT /specs/config` | ❌ | ✅ |
+| Qualquer endpoint de `/usuarios/**` | ❌ | ✅ |
+
+### Bloqueio por força bruta
+
+`LoginLockoutService` bloqueia uma **conta** (não um IP) após 5 falhas de login em 10 minutos, por 30 segundos — bloquear pela conta, em vez do IP, evita que uma rede compartilhada inteira (escritório, wifi público) fique travada por causa de uma única pessoa errando a senha repetidamente:
+
+```java
+// LoginLockoutService.java
+private static final int LIMITE_FALHAS = 5;
+private static final Duration JANELA_FALHAS = Duration.ofMinutes(10);
+private static final Duration DURACAO_BLOQUEIO = Duration.ofSeconds(30);
+```
+
+O bloqueio é checado **antes** de qualquer verificação de senha — uma tentativa de login contra uma conta já bloqueada nunca chega a gastar um cálculo de BCrypt, e a resposta (`429`, com header `Retry-After` informando quantos segundos faltam) é idêntica independentemente de a senha informada estar certa ou errada, para não vazar essa informação durante o bloqueio. Login bem-sucedido limpa imediatamente o histórico de falhas da conta. O estado do bloqueio vive em memória (mesmo padrão dos buckets do rate limiting) — não sobrevive a um restart da aplicação, o que é aceitável já que a janela de bloqueio é de segundos, não dias.
+
+Essa checagem é independente da detecção de força bruta por IP que já existe em `AuditService` (ver [Trilha de auditoria](#trilha-de-auditoria)) — uma atua por conta, bloqueando o login em si; a outra atua por IP, apenas alertando.

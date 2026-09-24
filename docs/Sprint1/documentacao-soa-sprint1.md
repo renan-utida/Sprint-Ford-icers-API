@@ -338,7 +338,7 @@ em vez de deixar a divergência passar despercebida.
 
 | Bloco | Peso | O que cobre | Status |
 |---|---:|---|:---:|
-| Integração por Web Services | 50% | Diagrama de arquitetura, 17 endpoints REST/JSON, verbos HTTP semânticos, Swagger customizado | ✅ |
+| Integração por Web Services | 50% | Diagrama de arquitetura, 18 operações REST/JSON em 17 rotas distintas, verbos HTTP semânticos, Swagger customizado | ✅ |
 | Arquitetura Orientada a Serviços | 20% | Services independentes com reuso real (`ChatService`→`SpecService`, `resolverComCache`), separação controller/service/repository | ✅ |
 | Padrões e Boas Práticas | 15% | REST/JSON consistente, `GlobalExceptionHandler` com 12 exceções mapeadas | ✅ |
 | Conexão com banco de dados | 15% | Datasource por perfil (Oracle prod / H2 dev-h2), 9 migrations Flyway versionadas | ✅ |

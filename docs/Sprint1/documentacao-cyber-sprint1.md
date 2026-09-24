@@ -157,10 +157,17 @@ categoria de erro.
 **Pedido:** autenticação segura (JWT/OAuth2) com token expirável, assinado e
 com renovação controlada; RBAC diferenciando papéis de acesso.
 
-**JWT com expiração e renovação controlada.** Autenticação via JWT HS256.
-Dois tipos de token, cada um com claim `type` própria (`ACCESS`/`REFRESH`) —
-um refresh token não pode ser usado como access token nem vice-versa, porque
-a validação checa o tipo explicitamente:
+**JWT com expiração e renovação controlada.** Autenticação via JWT assinado
+com HMAC — o algoritmo não é fixado explicitamente no código:
+`JwtService` monta a chave com `Keys.hmacShaKeyFor(secret...)` e assina com
+`.signWith(signingKey)`, sem informar um algoritmo, então o próprio JJWT
+escolhe o HMAC mais forte que o tamanho da chave permite. Com o
+`JWT_SECRET` gerado como o projeto recomenda (`openssl rand -base64 64`),
+isso resulta em **HS512** na prática — confirmado decodificando o header de
+um token emitido de verdade (`{"alg":"HS512"}`), não apenas inferido do
+código. Dois tipos de token, cada um com claim `type` própria
+(`ACCESS`/`REFRESH`) — um refresh token não pode ser usado como access
+token nem vice-versa, porque a validação checa o tipo explicitamente:
 
 ```java
 // JwtService.java
@@ -306,7 +313,8 @@ public CorsConfigurationSource corsConfigurationSource() {
 ```
 
 **Assinatura/verificação de integridade de payloads — nuance registrada.**
-Este ponto foi endereçado via a assinatura HS256 do JWT: `JwtService` rejeita
+Este ponto foi endereçado via a assinatura HMAC do JWT (HS512 na prática,
+ver critério 2 acima): `JwtService` rejeita
 qualquer token cuja assinatura não bata
 (`Jwts.parser().verifyWith(signingKey).parseSignedClaims(token)`), garantindo
 que o token de autenticação não foi alterado em trânsito. Isso é diferente de
