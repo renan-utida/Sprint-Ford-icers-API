@@ -370,9 +370,13 @@ dado potencialmente desatualizado do cache para sempre.
 
 **Anonimização/pseudonimização.** Dois mecanismos, para dois problemas
 diferentes. Anonimização (irreversível, LGPD): endpoint
-`PATCH /usuarios/{id}/anonimizar`, restrito a ADMIN e só aplicável a um
-usuário já desativado, sobrescreve nome/e-mail/senha preservando o `id`
-(para não quebrar FKs de histórico já registrado). Pseudonimização
+`PATCH /usuarios/{id}/anonimizar`, restrito a ADMIN, substitui o email por
+um placeholder único (`anonimizado-{id}@deleted.local`) e desativa a conta
+(`ativo='N'`) — preserva o `id` (para não quebrar FKs de fichas técnicas e
+histórico já registrados) e não altera `nome` nem `senha`. Não há checagem
+de que o usuário já esteja desativado antes de anonimizar — a única trava
+existente é contra auto-anonimização (um ADMIN não pode anonimizar a
+própria conta). Pseudonimização
 (reversível com a chave certa, usada nos logs de auditoria): identificação de
 usuário em `sr_audit_logs` nunca é o e-mail/nome em texto plano — é um hash
 HMAC-SHA256 com salt secreto:
