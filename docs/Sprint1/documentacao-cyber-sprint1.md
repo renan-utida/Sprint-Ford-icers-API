@@ -122,8 +122,9 @@ cobre as duas dimensões de "payload flooding": tamanho de uma requisição
 individual e volume de requisições.
 
 **Tratamento seguro de erros.** Um único `@RestControllerAdvice`
-(`GlobalExceptionHandler`) intercepta toda exceção da aplicação — 12 tipos
-mapeados individualmente, mais um catch-all — e nunca deixa vazar stack
+(`GlobalExceptionHandler`) intercepta toda exceção da aplicação — 14 tipos
+mapeados individualmente, mais um catch-all (15 métodos `@ExceptionHandler`
+ao todo) — e nunca deixa vazar stack
 trace, nome de classe interna ou tecnologia para o cliente. O catch-all
 loga o stack trace completo internamente via SLF4J, mas devolve só uma
 mensagem genérica:

@@ -231,7 +231,8 @@ confiança dos campos, credenciais de teste, como usar). Endpoints ficam
 acessíveis em `/swagger-ui/index.html` (desabilitado em produção via
 `springdoc.swagger-ui.enabled=false`, reduzindo superfície de ataque num
 ambiente real). O mesmo conjunto de endpoints também está documentado em
-tabela no [`README-documentacao.md`](../README-documentacao.md) do projeto.
+tabela no [`README.md`](../../README.md) da raiz do projeto, seção
+"Endpoints da API".
 
 ---
 
@@ -277,8 +278,9 @@ linguagem (`Role`, `ConfidenceLevel`) padronizam os valores possíveis de
 campos-chave.
 
 **Tratamento adequado de erros e exceções (7%).** `GlobalExceptionHandler`
-(`@RestControllerAdvice`) centraliza o tratamento de 12 tipos de exceção
-diferentes, cada um mapeado para o código HTTP correto (`401`, `403`, `404`,
+(`@RestControllerAdvice`) centraliza o tratamento de 14 tipos de exceção
+diferentes (15 métodos `@ExceptionHandler` ao todo, incluindo o catch-all),
+cada um mapeado para o código HTTP correto (`400`, `401`, `403`, `404`,
 `409`, `413`, `422`, `429`, `503`, `500` catch-all) — nunca deixando uma
 exceção não mapeada vazar como um `500` cru sem contexto. O corpo malformado
 (`HttpMessageNotReadableException`, erro sintático de JSON) é tratado
@@ -340,6 +342,6 @@ em vez de deixar a divergência passar despercebida.
 |---|---:|---|:---:|
 | Integração por Web Services | 50% | Diagrama de arquitetura, 18 operações REST/JSON em 17 rotas distintas, verbos HTTP semânticos, Swagger customizado | ✅ |
 | Arquitetura Orientada a Serviços | 20% | Services independentes com reuso real (`ChatService`→`SpecService`, `resolverComCache`), separação controller/service/repository | ✅ |
-| Padrões e Boas Práticas | 15% | REST/JSON consistente, `GlobalExceptionHandler` com 12 exceções mapeadas | ✅ |
+| Padrões e Boas Práticas | 15% | REST/JSON consistente, `GlobalExceptionHandler` com 14 exceções mapeadas | ✅ |
 | Conexão com banco de dados | 15% | Datasource por perfil (Oracle prod / H2 dev-h2), 9 migrations Flyway versionadas | ✅ |
 | **Total** | **100%** | | **✅** |
