@@ -5,6 +5,7 @@ import com.icers.ford.dto.request.UsuarioUpdateRequest;
 import com.icers.ford.dto.response.UsuarioResponse;
 import com.icers.ford.exception.AutoDesativacaoException;
 import com.icers.ford.exception.EmailJaCadastradoException;
+import com.icers.ford.exception.UsuarioAindaAtivoException;
 import com.icers.ford.exception.UsuarioNaoEncontradoException;
 import com.icers.ford.model.Usuario;
 import com.icers.ford.model.enums.Role;
@@ -293,13 +294,15 @@ public class UsuarioServiceTest {
     // anonimizar
 
     @Test
-    @DisplayName("Deve anonimizar usuário com sucesso (email placeholder + ativo N)")
+    @DisplayName("Deve anonimizar usuário já desativado com sucesso (nome + email placeholder)")
     public void testAnonimizarComSucesso() {
+        analyst.setAtivo("N"); // precondição: só usuário já desativado pode ser anonimizado
         when(usuarioRepository.findById(2L)).thenReturn(Optional.of(analyst));
         when(usuarioRepository.save(any(Usuario.class))).thenReturn(analyst);
 
         usuarioService.anonimizar(2L);
 
+        assertEquals("Usuário Removido", analyst.getNome());
         assertEquals("anonimizado-2@deleted.local", analyst.getEmail());
         assertEquals("N", analyst.getAtivo());
         verify(usuarioRepository, times(1)).save(analyst);
@@ -313,6 +316,21 @@ public class UsuarioServiceTest {
         assertThrows(UsuarioNaoEncontradoException.class,
                 () -> usuarioService.anonimizar(99L));
 
+        verify(usuarioRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("REGRESSÃO — LGPD: anonimizar usuário AINDA ATIVO deve lançar UsuarioAindaAtivoException, sem alterar nome/email nem salvar")
+    public void testAnonimizarUsuarioAindaAtivo() {
+        // analyst.ativo continua "S" (valor padrão do setUp) — não desativado
+        when(usuarioRepository.findById(2L)).thenReturn(Optional.of(analyst));
+
+        UsuarioAindaAtivoException ex = assertThrows(UsuarioAindaAtivoException.class,
+                () -> usuarioService.anonimizar(2L));
+
+        assertEquals(2L, ex.getId());
+        assertEquals("Analista Ford", analyst.getNome());
+        assertEquals("analyst@specradar.com", analyst.getEmail());
         verify(usuarioRepository, never()).save(any());
     }
 }

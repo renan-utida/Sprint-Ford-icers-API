@@ -156,6 +156,25 @@ public class GlobalExceptionHandler {
                 ));
     }
 
+    // 409 — Anonimização bloqueada: usuário ainda ativo
+
+    @ExceptionHandler(UsuarioAindaAtivoException.class)
+    public ResponseEntity<ErrorResponse> handleUsuarioAindaAtivo(
+            UsuarioAindaAtivoException ex,
+            HttpServletRequest request
+    ) {
+        log.warn("Tentativa de anonimizar usuário ainda ativo — id: {} | endpoint: {}",
+                ex.getId(), request.getRequestURI());
+
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ErrorResponse.of(
+                        "USER_STILL_ACTIVE",
+                        ex.getMessage(),
+                        request.getRequestURI()
+                ));
+    }
+
     @ExceptionHandler(EmailJaCadastradoException.class)
     public ResponseEntity<ErrorResponse> handleEmailJaCadastrado(
             EmailJaCadastradoException ex,

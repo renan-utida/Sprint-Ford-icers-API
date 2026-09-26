@@ -5,6 +5,7 @@ import com.icers.ford.dto.request.UsuarioUpdateRequest;
 import com.icers.ford.dto.response.UsuarioResponse;
 import com.icers.ford.exception.AutoDesativacaoException;
 import com.icers.ford.exception.EmailJaCadastradoException;
+import com.icers.ford.exception.UsuarioAindaAtivoException;
 import com.icers.ford.exception.UsuarioNaoEncontradoException;
 import com.icers.ford.model.Usuario;
 import com.icers.ford.model.enums.Role;
@@ -149,18 +150,29 @@ public class UsuarioService {
 
     /**
      * Anonimização irreversível — diferente de soft delete (campo
-     * ativo). Remove o email (único dado identificável do Usuario)
-     * substituindo por um placeholder único e desativa a conta.
-     * A linha em si permanece, preservando integridade referencial
-     * com sr_fichas_tecnicas.criado_por, sr_historico_consultas, etc.
+     * ativo). Remove nome e email (os dados pessoais identificáveis do
+     * Usuario), substituindo por placeholders, preservando o id — a
+     * linha em si permanece, preservando integridade referencial com
+     * sr_fichas_tecnicas.criado_por, sr_historico_consultas, etc.
+     * <p>
+     * Só permitida para um usuário já desativado: a irreversibilidade
+     * da anonimização exige a etapa deliberada de desativar antes, em
+     * vez de apagar de forma definitiva uma conta ainda em uso num
+     * único passo. Senha não é alterada — já é hash BCrypt irreversível,
+     * e o login já exige ativo='S', então fica inerte de qualquer jeito
+     * assim que a conta é desativada.
      */
     @Transactional
     public void anonimizar(Long id) {
         Usuario usuario = usuarioRepository.findById(id)
                 .orElseThrow(() -> new UsuarioNaoEncontradoException(id));
 
+        if ("S".equals(usuario.getAtivo())) {
+            throw new UsuarioAindaAtivoException(id);
+        }
+
+        usuario.setNome("Usuário Removido");
         usuario.setEmail("anonimizado-" + usuario.getId() + "@deleted.local");
-        usuario.setAtivo("N");
         usuarioRepository.save(usuario);
 
         log.info("[AUDITORIA] Usuário anonimizado — id: {}", id);
