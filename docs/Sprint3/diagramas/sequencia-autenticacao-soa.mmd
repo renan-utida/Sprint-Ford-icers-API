@@ -1,0 +1,40 @@
+sequenceDiagram
+    actor Cliente
+    participant RLF as RateLimitFilter
+    participant Auth as AuthController
+    participant Lock as LoginLockoutService
+    participant AM as AuthenticationManager
+    participant UDS as UserDetailsServiceImpl
+    participant Jwt as JwtService
+    participant JAF as JwtAuthFilter
+    participant SC as SecurityConfig<br/>(@PreAuthorize)
+    participant Ctrl as Controller<br/>(ex.: SpecController)
+    participant Svc as Service<br/>(ex.: SpecService)
+
+    Note over Cliente,Svc: 1 — Login (POST /auth/login)
+    Cliente->>RLF: POST /auth/login {email, senha}
+    RLF->>Auth: dentro do limite por IP
+    Auth->>Lock: conta bloqueada?
+    Lock-->>Auth: não bloqueada
+    Auth->>AM: authenticate(email, senha)
+    AM->>UDS: loadUserByUsername(email)
+    UDS-->>AM: UserDetails (role, senha em hash)
+    AM->>AM: valida senha (BCrypt)
+    AM-->>Auth: autenticado
+    Auth->>Jwt: generateAccessToken + generateRefreshToken
+    Jwt-->>Auth: access_token (8h) + refresh_token (7d)
+    Auth-->>Cliente: 200 {access_token, refresh_token, role}
+
+    Note over Cliente,Svc: 2 — Requisição autenticada (ex.: POST /specs/query)
+    Cliente->>RLF: Authorization: Bearer access_token
+    RLF->>JAF: dentro do limite por IP
+    JAF->>Jwt: valida assinatura, expiração, type=ACCESS
+    Jwt-->>JAF: claims (email, role)
+    JAF->>UDS: loadUserByUsername(email)
+    JAF->>JAF: popula SecurityContext
+    JAF->>SC: encaminha requisição
+    SC->>SC: @PreAuthorize checa role exigida
+    SC->>Ctrl: autorizado
+    Ctrl->>Svc: delega regra de negócio
+    Svc-->>Ctrl: resultado
+    Ctrl-->>Cliente: 200 (ou 4xx/5xx via GlobalExceptionHandler)

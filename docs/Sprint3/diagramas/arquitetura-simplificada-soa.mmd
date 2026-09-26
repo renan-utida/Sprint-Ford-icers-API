@@ -1,0 +1,67 @@
+%%{init: {'flowchart': {'nodeSpacing': 45, 'rankSpacing': 65}}}%%
+flowchart TD
+    Client["Cliente HTTP<br/>(Swagger UI / Insomnia / app)"]
+
+    subgraph Filtros["Filtros de Servlet — config"]
+        direction TB
+        RLF["RateLimitFilter<br/>por IP"]
+        RLOG["RequestLoggingFilter"]
+    end
+
+    subgraph Seguranca["Segurança — security + SecurityConfig"]
+        direction TB
+        JAF["JwtAuthFilter"]
+        JWT["JwtService"]
+        SC["SecurityConfig<br/>RBAC via @PreAuthorize"]
+    end
+
+    subgraph Apresentacao["Apresentação — controller"]
+        direction LR
+        AuthC["AuthController"]
+        SpecC["SpecController"]
+        ChatC["ChatController"]
+        UsuC["UsuarioController"]
+    end
+
+    subgraph Negocio["Serviço — service"]
+        direction LR
+        SpecS["SpecService"]
+        UsuS["UsuarioService"]
+        ChatS["ChatService"]
+        ConfS["ConfigService"]
+        AuditS["AuditService"]
+        IdemS["IdempotencyService"]
+        LockS["LoginLockoutService"]
+    end
+
+    subgraph Dados["Dados — repository + model"]
+        direction TB
+        Repo["Repositories<br/>Spring Data JPA"]
+        Model["Entidades JPA"]
+    end
+
+    DB[("Oracle 19c — prod<br/>H2 em memória — dev-h2")]
+
+    Client -->|"HTTPS/TLS em prod · HTTP em dev"| Filtros
+    Filtros --> Seguranca
+    Seguranca --> Apresentacao
+    Apresentacao --> Negocio
+    Negocio --> Dados
+    Dados --> DB
+
+    subgraph Apoio["Componentes de apoio transversais"]
+        direction LR
+        Aes["AesEncryptionService"]
+        Llm["LlmClient"]
+        Util["IpResolver / UsuarioResolver"]
+        Exc["GlobalExceptionHandler"]
+    end
+
+    Gemini[["Google Gemini API"]]
+
+    Apresentacao -. usa .-> Apoio
+    Negocio -. usa .-> Apoio
+    Llm --> Gemini
+
+    classDef apoio fill:#fff7e0,stroke:#c9a227;
+    class Apoio apoio
