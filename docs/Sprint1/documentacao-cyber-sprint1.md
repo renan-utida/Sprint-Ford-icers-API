@@ -122,8 +122,8 @@ cobre as duas dimensões de "payload flooding": tamanho de uma requisição
 individual e volume de requisições.
 
 **Tratamento seguro de erros.** Um único `@RestControllerAdvice`
-(`GlobalExceptionHandler`) intercepta toda exceção da aplicação — 14 tipos
-mapeados individualmente, mais um catch-all (15 métodos `@ExceptionHandler`
+(`GlobalExceptionHandler`) intercepta toda exceção da aplicação — 15 tipos
+mapeados individualmente, mais um catch-all (16 métodos `@ExceptionHandler`
 ao todo) — e nunca deixa vazar stack
 trace, nome de classe interna ou tecnologia para o cliente. O catch-all
 loga o stack trace completo internamente via SLF4J, mas devolve só uma
@@ -371,13 +371,17 @@ dado potencialmente desatualizado do cache para sempre.
 
 **Anonimização/pseudonimização.** Dois mecanismos, para dois problemas
 diferentes. Anonimização (irreversível, LGPD): endpoint
-`PATCH /usuarios/{id}/anonimizar`, restrito a ADMIN, substitui o email por
-um placeholder único (`anonimizado-{id}@deleted.local`) e desativa a conta
-(`ativo='N'`) — preserva o `id` (para não quebrar FKs de fichas técnicas e
-histórico já registrados) e não altera `nome` nem `senha`. Não há checagem
-de que o usuário já esteja desativado antes de anonimizar — a única trava
-existente é contra auto-anonimização (um ADMIN não pode anonimizar a
-própria conta). Pseudonimização
+`PATCH /usuarios/{id}/anonimizar`, restrito a ADMIN, substitui nome e email
+por placeholders (`"Usuário Removido"` / `anonimizado-{id}@deleted.local`) —
+preserva o `id` (para não quebrar FKs de fichas técnicas e histórico já
+registrados) e não altera `senha` (já é hash BCrypt irreversível, e fica
+inerte de qualquer forma assim que `ativo='N'`, já que o login exige
+`ativo='S'`). Só é permitida para um usuário **já desativado**
+(`UsuarioAindaAtivoException`, `409`, se ainda ativo) — a irreversibilidade
+da ação é forçada a passar por uma etapa deliberada de desativação antes,
+em vez de apagar de forma definitiva uma conta ainda em uso num único
+passo. Há também a trava contra auto-anonimização (um ADMIN não pode
+anonimizar a própria conta). Pseudonimização
 (reversível com a chave certa, usada nos logs de auditoria): identificação de
 usuário em `sr_audit_logs` nunca é o e-mail/nome em texto plano — é um hash
 HMAC-SHA256 com salt secreto:

@@ -278,8 +278,8 @@ linguagem (`Role`, `ConfidenceLevel`) padronizam os valores possíveis de
 campos-chave.
 
 **Tratamento adequado de erros e exceções (7%).** `GlobalExceptionHandler`
-(`@RestControllerAdvice`) centraliza o tratamento de 14 tipos de exceção
-diferentes (15 métodos `@ExceptionHandler` ao todo, incluindo o catch-all),
+(`@RestControllerAdvice`) centraliza o tratamento de 15 tipos de exceção
+diferentes (16 métodos `@ExceptionHandler` ao todo, incluindo o catch-all),
 cada um mapeado para o código HTTP correto (`400`, `401`, `403`, `404`,
 `409`, `413`, `422`, `429`, `503`, `500` catch-all) — nunca deixando uma
 exceção não mapeada vazar como um `500` cru sem contexto. O corpo malformado
@@ -342,6 +342,6 @@ em vez de deixar a divergência passar despercebida.
 |---|---:|---|:---:|
 | Integração por Web Services | 50% | Diagrama de arquitetura, 18 operações REST/JSON em 17 rotas distintas, verbos HTTP semânticos, Swagger customizado | ✅ |
 | Arquitetura Orientada a Serviços | 20% | Services independentes com reuso real (`ChatService`→`SpecService`, `resolverComCache`), separação controller/service/repository | ✅ |
-| Padrões e Boas Práticas | 15% | REST/JSON consistente, `GlobalExceptionHandler` com 14 exceções mapeadas | ✅ |
+| Padrões e Boas Práticas | 15% | REST/JSON consistente, `GlobalExceptionHandler` com 15 exceções mapeadas | ✅ |
 | Conexão com banco de dados | 15% | Datasource por perfil (Oracle prod / H2 dev-h2), 9 migrations Flyway versionadas | ✅ |
 | **Total** | **100%** | | **✅** |

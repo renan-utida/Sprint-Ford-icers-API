@@ -332,12 +332,13 @@ sprint-ford-api/
 │   │       └── ErrorResponse.java             # formato padrão de erro de toda a API
 │   │
 │   ├── exception/
-│   │   ├── GlobalExceptionHandler.java        # @RestControllerAdvice — 15 handlers, nunca vaza stack trace
+│   │   ├── GlobalExceptionHandler.java        # @RestControllerAdvice — 16 handlers, nunca vaza stack trace
 │   │   ├── FichaNaoEncontradaException.java   # 404, com sugestões de veículos similares
 │   │   ├── UsuarioNaoEncontradoException.java # 404
 │   │   ├── EmailJaCadastradoException.java    # 409 — email já pertence a outra conta
 │   │   ├── AutoAnonimizacaoException.java     # 409 — ADMIN não pode anonimizar a si mesmo
 │   │   ├── AutoDesativacaoException.java      # 409 — ADMIN não pode desativar a si mesmo
+│   │   ├── UsuarioAindaAtivoException.java    # 409 — anonimizar exige desativação prévia
 │   │   ├── ArquivoInvalidoException.java      # 422 — PDF de /from-pdf inválido (content-type/assinatura)
 │   │   ├── LlmUnavailableException.java       # 503 — falha do Gemini, sem revelar qual tecnologia é usada
 │   │   └── RateLimitExceededException.java    # 429 — carrega o retryAfterSeconds
@@ -403,7 +404,7 @@ sprint-ford-api/
 │   ├── SprintFordApiApplicationTests.java      # smoke test (@SpringBootTest), fixado em @ActiveProfiles("dev-h2")
 │   ├── service/
 │   │   ├── SpecServiceTest.java                # 32 testes
-│   │   ├── UsuarioServiceTest.java             # 18 testes
+│   │   ├── UsuarioServiceTest.java             # 19 testes
 │   │   ├── AuditServiceTest.java               # 17 testes
 │   │   ├── ChatServiceTest.java                # 14 testes
 │   │   ├── ConfigServiceTest.java              # 11 testes
@@ -991,6 +992,8 @@ if (!expirada && atributosFaltando.isEmpty()) {
 
 Duas requisições concorrentes para o **mesmo veículo nunca visto antes** podem ambas passar pela checagem de cache miss antes de qualquer uma terminar de salvar. A escrita usa `saveAndFlush` (não `save`) justamente para forçar o `INSERT` a acontecer de forma síncrona dentro do método — se o índice único de idempotência de veículo (`uk_sr_ficha_veiculo_ci`, ver [Migrações Flyway](#migrações-flyway), `V7`) rejeitar a segunda gravação, o `SpecService` captura a `DataIntegrityViolationException` e devolve a ficha que a outra requisição já salvou, em vez de propagar um `500` — o resultado funcional é idêntico, só sem duplicar linha nem mascarar o desperdício de uma segunda chamada ao Gemini.
 
+**Nuance sobre a evidência desse mecanismo:** o mesmo padrão (`saveAndFlush` + captura de `DataIntegrityViolationException`) foi comprovado sob concorrência real para email duplicado em `UsuarioService` — duas requisições disparadas com milissegundos de diferença, resultado `201`+`409`, sem stack trace de erro não tratado. Para `FichaTecnica` especificamente, porém, a corrida de concorrência **nunca foi reproduzida sob carga real** — tentativas de forçar duas chamadas simultâneas a `POST /specs/query` esbarraram na instabilidade do próprio Gemini (503 ou JSON malformado intercepta uma das chamadas antes das duas competirem pelo mesmo `INSERT`). O mecanismo é aceito como correto **por analogia** ao caso já comprovado — é o mesmo padrão (`GenerationType.IDENTITY` + `saveAndFlush`, mesma tradução de exceção via Hibernate), sem nenhuma lógica específica de `FichaTecnica` que mudaria esse comportamento — mas isso é uma inferência de mecanismo, não uma reprodução direta e independente.
+
 ### Níveis de confiança
 
 Dois níveis distintos, um por campo e um geral da ficha — propositalmente não são a mesma escala:
@@ -1355,15 +1358,15 @@ HMAC, não SHA-256 puro, é deliberado: IDs de usuário são inteiros sequenciai
 
 ### LGPD
 
-Dois mecanismos para dois problemas diferentes — desativação (reversível) e anonimização (irreversível) não são graus da mesma ação:
+Dois mecanismos para dois problemas diferentes — desativação (reversível) e anonimização (irreversível) não são graus da mesma ação, e a segunda só é permitida depois da primeira:
 
 | | `DELETE /usuarios/{id}` (desativar) | `PATCH /usuarios/{id}/anonimizar` |
 |---|---|---|
 | Reversível? | Sim — `PATCH /reativar` desfaz | **Não** |
-| O que muda | Só `ativo='N'` (bloqueia login) | `email` substituído por placeholder único + `ativo='N'` |
-| `nome`/`senha` alterados? | Não | Não |
-| Exige desativação prévia? | — | Não — pode ser chamado em usuário ainda ativo |
-| Quando usar | Afastamento temporário | Descarte de dado pessoal (LGPD) |
+| O que muda | Só `ativo='N'` (bloqueia login) | `nome` e `email` substituídos por placeholder |
+| `senha` alterada? | Não | Não — já é hash BCrypt irreversível e inerte assim que `ativo='N'` |
+| Exige desativação prévia? | — | **Sim** — `409` se o usuário ainda estiver ativo |
+| Quando usar | Afastamento temporário | Descarte de dado pessoal (LGPD), depois de já desativado |
 
 ```java
 // service/UsuarioService.java
@@ -1372,15 +1375,19 @@ public void anonimizar(Long id) {
     Usuario usuario = usuarioRepository.findById(id)
             .orElseThrow(() -> new UsuarioNaoEncontradoException(id));
 
+    if ("S".equals(usuario.getAtivo())) {
+        throw new UsuarioAindaAtivoException(id);
+    }
+
+    usuario.setNome("Usuário Removido");
     usuario.setEmail("anonimizado-" + usuario.getId() + "@deleted.local");
-    usuario.setAtivo("N");
     usuarioRepository.save(usuario);
 }
 ```
 
-A linha do usuário **nunca é deletada fisicamente**, nos dois casos — a anonimização remove o único dado pessoal identificável (o email; o `id` numérico, o `nome` e o hash da senha permanecem inalterados), preservando a integridade referencial com `sr_fichas_tecnicas.criado_por` e `sr_historico_consultas` já gravados. Deletar a linha quebraria essas referências.
+A linha do usuário **nunca é deletada fisicamente**, nos dois casos — a anonimização remove os dados pessoais identificáveis (nome e email; o `id` numérico e o hash da senha permanecem inalterados), preservando a integridade referencial com `sr_fichas_tecnicas.criado_por` e `sr_historico_consultas` já gravados. Deletar a linha quebraria essas referências.
 
-A única trava contra uso indevido dos dois endpoints é contra a própria conta: um `ADMIN` não pode desativar nem anonimizar a si mesmo (`409 Conflict` nos dois casos — `AutoDesativacaoException`/`AutoAnonimizacaoException`) — evita que um administrador se bloqueie fora do sistema sem querer, e garante que sempre exista pelo menos um `ADMIN` ativo capaz de reverter uma ação equivocada de outro administrador. Não há checagem adicional de estado prévio (como exigir que o usuário já esteja desativado antes de anonimizar) — a anonimização pode ser aplicada diretamente a um usuário ainda ativo.
+Duas travas contra uso indevido: um `ADMIN` não pode desativar nem anonimizar a si mesmo (`409 Conflict` nos dois casos — `AutoDesativacaoException`/`AutoAnonimizacaoException`) — evita que um administrador se bloqueie fora do sistema sem querer, e garante que sempre exista pelo menos um `ADMIN` ativo capaz de reverter uma ação equivocada de outro administrador. E a anonimização em si exige que o usuário já esteja desativado (`UsuarioAindaAtivoException`, também `409`) — a irreversibilidade da ação é forçada a passar por uma etapa deliberada anterior, em vez de apagar de forma definitiva uma conta ainda em uso num único passo.
 
 ### Tratamento centralizado de erros
 
@@ -1391,7 +1398,7 @@ Um único `@RestControllerAdvice` (`GlobalExceptionHandler`) mapeia mais de uma 
 | `MethodArgumentNotValidException` | `422` | Bean Validation — corpo é JSON válido, mas viola regra semântica |
 | `HttpMessageNotReadableException` | `400` | Corpo nem chega a ser parseado como JSON válido — erro sintático, não semântico |
 | `FichaNaoEncontradaException` / `UsuarioNaoEncontradoException` | `404` | Recurso não encontrado |
-| `AutoAnonimizacaoException` / `AutoDesativacaoException` / `EmailJaCadastradoException` | `409` | Conflito com o estado atual |
+| `AutoAnonimizacaoException` / `AutoDesativacaoException` / `EmailJaCadastradoException` / `UsuarioAindaAtivoException` | `409` | Conflito com o estado atual |
 | `AuthenticationException` | `401` | Não autenticado |
 | `AccessDeniedException` | `403` | Autenticado, mas sem permissão |
 | `ArquivoInvalidoException` | `422` | Arquivo de `/from-pdf` inválido (content-type ou assinatura) |
@@ -1457,13 +1464,13 @@ private void salvar(String usuarioHash, String endpoint, String metodo,
 
 ### Suíte e cobertura
 
-**171 testes unitários**, distribuídos em 11 classes de teste (JUnit 5 + Mockito), organizados numa suíte única via JUnit Platform Suite:
+**172 testes unitários**, distribuídos em 11 classes de teste (JUnit 5 + Mockito), organizados numa suíte única via JUnit Platform Suite:
 
 | Classe de teste | Testes | Cobre |
 |---|:---:|---|
 | `SpecServiceTest` | 32 | Cache hit/expirada/parcial/miss, concorrência, rate limiting, comparação, histórico |
 | `JwtServiceTest` | 24 | Geração/extração de claims, validação, expiração, tipos de token |
-| `UsuarioServiceTest` | 18 | CRUD, race condition de email duplicado, desativação/reativação/anonimização |
+| `UsuarioServiceTest` | 19 | CRUD, race condition de email duplicado, desativação/reativação/anonimização (incluindo a regra de exigir desativação prévia) |
 | `GlobalExceptionHandlerTest` | 19 | Cada exceção mapeada para o status HTTP correto |
 | `AuditServiceTest` | 17 | Hash pseudonimizado, valores reais de método/endpoint/status por ação |
 | `AesEncryptionServiceTest` | 13 | Round-trip, IV aleatório, integridade (dado adulterado/chave errada) |
@@ -1472,7 +1479,7 @@ private void salvar(String usuarioHash, String endpoint, String metodo,
 | `IdempotencyServiceTest` | 9 | Registro e busca por `Idempotency-Key` |
 | `LoginLockoutServiceTest` | 8 | Registro de falhas, cálculo de bloqueio |
 | `CamposJsonEncryptedConverterTest` | 6 | Delegação de cifragem/decifragem ao `AesEncryptionService` |
-| **Total** | **171** | |
+| **Total** | **172** | |
 
 ```java
 // SuiteDeTestesGeral.java
