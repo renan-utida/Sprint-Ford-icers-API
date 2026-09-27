@@ -13,12 +13,10 @@
                     defaultValue="dev"/>
 
     <!-- ================================================= -->
-    <!-- CONSOLE APPENDER — DEV / DEV-H2                   -->
+    <!-- CONSOLE APPENDER — DEV                             -->
     <!-- Formato legível para desenvolvimento              -->
-    <!-- dev-h2 reaproveita o mesmo appender do dev — só o  -->
-    <!-- datasource muda entre os dois, não o log.          -->
     <!-- ================================================= -->
-    <springProfile name="dev,dev-h2">
+    <springProfile name="dev">
         <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
             <encoder>
                 <pattern>

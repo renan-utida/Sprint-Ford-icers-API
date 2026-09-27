@@ -23,7 +23,7 @@ public class Usuario {
     // NUMERIC em vez do BIGINT que H2Dialect esperaria por padrão para Long —
     // NUMBER (Oracle) e NUMBER(19) (H2) reportam via JDBC como NUMERIC nos
     // dois bancos; sem isso, ddl-auto=validate rejeita a coluna sob o
-    // perfil dev-h2 (só sob H2Dialect, nunca deu problema no Oracle real).
+    // perfil dev (só sob H2Dialect, nunca deu problema no Oracle real).
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @JdbcTypeCode(SqlTypes.NUMERIC)

@@ -42,9 +42,8 @@ public class SecurityConfig {
 
     /**
      * Chain dedicada e mais permissiva, só para o H2 Console — existe de fato
-     * apenas quando o perfil dev-h2 está ativo (spring.h2.console.enabled=true);
-     * nos demais perfis a rota nem é registrada, então esta chain nunca casa
-     * com nada. Isolada da chain principal (@Order(1) = avaliada primeiro) para
+     * apenas quando spring.h2.console.enabled=true (perfil dev); em prod a
+     * rota nem é registrada, então esta chain nunca casa com nada. Isolada da chain principal (@Order(1) = avaliada primeiro) para
      * que o afrouxamento de CSRF/frame-options fique restrito a este path, sem
      * enfraquecer esses headers no resto da API.
      */
