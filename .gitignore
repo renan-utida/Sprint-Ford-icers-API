@@ -43,3 +43,5 @@ logs/
 
 ### Certificado SSL (gerado localmente via keytool, nunca commitar) ###
 src/main/resources/*.p12
+
+CLAUDE.md

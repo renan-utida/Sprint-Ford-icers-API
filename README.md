@@ -1160,22 +1160,26 @@ Chamadas multimodais (PDF anexado, enviado como `inlineData` em base64 no corpo 
 |---|:---:|---|
 | `gemini-3.7-flash` | Sim | `429 RESOURCE_EXHAUSTED` — cota de grounding zerada para a geração Gemini 3 |
 | `gemini-3.7-flash` | Não | `200` — funciona normalmente (controle) |
-| `gemini-2.5-flash` | Sim | `404` — *"no longer available to new users"* |
+| `gemini-2.5-flash` | Sim | `404` — *"no longer available to new users. Use gemini-3.6-flash"* |
 | `gemini-3.6-flash` | Sim | `429 RESOURCE_EXHAUSTED` — mesmo padrão |
 | `gemini-3.6-flash` | Não | `200` — funciona normalmente (controle) |
-| `gemini-2.0-flash` | Sim | `404` — *"no longer available"* |
-| `gemini-2.5-flash-lite` | Sim | `404` — *"no longer available to new users"* |
+| `gemini-2.0-flash` | Sim | `404` — *"no longer available. Use gemini-3.6-flash"* |
+| `gemini-2.5-flash-lite` | Sim | `404` — *"no longer available to new users. Use gemini-3.5-flash-lite"* |
 
 Ou seja: os modelos que a chave atual consegue efetivamente chamar (família Gemini 3.x) têm cota de grounding **zero**; os modelos com cota de grounding disponível (família Gemini 2.x) estão **bloqueados por elegibilidade de conta**, não pela chave em si. Não há combinação de nome de modelo que contorne isso no tier gratuito de hoje — por isso `LlmClient` não usa `google_search`. Se o faturamento da conta for habilitado no futuro, essa cota pode se comportar de forma diferente — vale reavaliar o grounding nesse caso; a limitação está registrada como uma decisão condicionada ao tier atual, não como algo tecnicamente impossível para sempre.
 
-**Confiabilidade menor ao extrair de PDFs com imagens embutidas.** Antes de desenhar `/specs/from-pdf`, 16 tentativas de extração via PDF, com controles pareados, mostraram uma correlação forte entre presença de imagem embutida no arquivo e falha da chamada:
+**Confiabilidade menor ao extrair de PDFs com imagens embutidas.** Antes de desenhar `/specs/from-pdf`, 16 tentativas de extração via PDF, com controles pareados (arquivos diferentes, tamanhos diferentes, com e sem imagem embutida), mostraram uma correlação forte entre presença de imagem embutida no arquivo e falha da chamada:
 
-| Tipo de arquivo | Tentativas | Resultado |
-|---|:---:|---|
-| PDF **sem** nenhuma imagem embutida (specs como texto puro) | 1 | `200 OK` — 100% dos campos corretos, inclusive reproduzindo fielmente um erro de digitação do documento original |
-| PDF **com** imagem embutida (foto real, a mesma foto recomprimida, ou uma imagem sintética sem relação com o conteúdo) | 15 | `503` em 15 de 16 tentativas — incluindo depois de dias de intervalo (descarta sobrecarga transitória) e com arquivo totalmente novo (descarta corrupção de um arquivo específico) |
+| Arquivo | Contém imagem embutida | Tentativas | Resultado |
+|---|:---:|:---:|---|
+| `FordV1-Alunos.pdf` (868 KB, documento real da FIAP; não continha a ficha da Raptor) | Sim | 1 | `200 OK` |
+| `FORD_apresentacao.pdf` (10 MB, deck completo de slides) | Sim | 4 | `503` × 4 |
+| `ford-ranger-raptor.pdf` (foto real da Raptor, slide único extraído, 1,4 MB) | Sim | 7 | 1 timeout + `503` × 6 (incluindo repetição após 2 dias, cota diária já resetada) |
+| Mesmo slide, recomprimido a 180 KB (resolução menor, mesma foto) | Sim | 3 | `503` × 3 |
+| Specs da Raptor recriadas como texto puro em fundo branco, sem nenhuma imagem real | Não | 1 | `200 OK` — 100% dos campos batendo com o gabarito conhecido (motor, potência, torque, transmissão, tração, amortecedores, 0-100, modos, faróis, rodas/pneus; inclusive reproduziu fielmente o "R$499.00" do slide original, um erro de digitação da própria Ford — evidência de que o modelo transcreve, não "corrige" por conta própria) |
+| Imagem sintética nova, gerada do zero, sem nenhuma relação com o arquivo original, com texto sobreposto | Sim | 1 | `503` |
 
-A causalidade exata não foi isolada — não foi testada uma imagem sem nenhum texto associado isoladamente —, mas a correlação entre "presença de imagem embutida" e falha é forte o bastante para tratar como limitação conhecida do serviço externo, não um bug da aplicação. Por isso `/specs/from-pdf` trata essa falha como mais um caso de `LlmUnavailableException`/`503`, mas com uma mensagem diferenciada avisando o analista que PDFs com fotos grandes têm chance de falha maior que catálogos tabulares/texto (ver `GlobalExceptionHandler.handleLlmUnavailable`, [Tratamento centralizado de erros](#tratamento-centralizado-de-erros)).
+PDF **sem** nenhuma imagem embutida funcionou 100% das vezes (1/1) com extração perfeita. PDF **com** qualquer imagem embutida (foto real, a mesma foto recomprimida, ou uma imagem sintética sem relação nenhuma com o arquivo original) falhou 15 de 16 vezes, incluindo depois de 2 dias de intervalo (descarta sobrecarga transitória como explicação única) e com um arquivo completamente novo (descarta corrupção específica daquele arquivo como explicação única). A causalidade exata não foi isolada — não foi testada uma imagem sem nenhum texto associado isoladamente —, mas a correlação entre "presença de imagem embutida" e falha é forte o bastante para tratar como limitação conhecida do serviço externo, não um bug da aplicação. Por isso `/specs/from-pdf` trata essa falha como mais um caso de `LlmUnavailableException`/`503`, mas com uma mensagem diferenciada avisando o analista que PDFs com fotos grandes têm chance de falha maior que catálogos tabulares/texto (ver `GlobalExceptionHandler.handleLlmUnavailable`, [Tratamento centralizado de erros](#tratamento-centralizado-de-erros)).
 
 ---
 
