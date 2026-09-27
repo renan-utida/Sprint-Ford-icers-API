@@ -22,11 +22,9 @@
   - [Pré-requisitos](#pré-requisitos)
   - [Variáveis de ambiente](#variáveis-de-ambiente)
   - [Perfis disponíveis](#perfis-disponíveis)
-  - [Subindo em dev (Oracle)](#subindo-em-dev-oracle)
-  - [Subindo em dev-h2 (H2 em memória)](#subindo-em-dev-h2-h2-em-memória)
+  - [Subindo em dev (H2)](#subindo-em-dev-h2)
   - [Subindo em prod (HTTPS + Oracle)](#subindo-em-prod-https--oracle)
   - [Gerando o certificado SSL](#gerando-o-certificado-ssl)
-  - [Resetando o banco do zero](#resetando-o-banco-do-zero)
   - [Armadilhas conhecidas de configuração](#armadilhas-conhecidas-de-configuração)
 - [Banco de dados](#banco-de-dados)
   - [Modelo de dados](#modelo-de-dados)
@@ -124,7 +122,7 @@ Cada disciplina tem um documento técnico dedicado, com evidência extraída dir
 | Framework | Spring Boot | 3.5.14 |
 | Segurança | Spring Security (JWT, RBAC via `@PreAuthorize`, CORS) | gerenciada pelo Spring Boot |
 | Persistência | Spring Data JPA | gerenciada pelo Spring Boot |
-| Banco de dados | Oracle (produção, instância FIAP) / H2 em memória (perfil `dev-h2`) | Oracle 19c · driver `ojdbc11` |
+| Banco de dados | H2 em memória (`dev`) / Oracle, instância FIAP (`prod`) | Oracle 19c · driver `ojdbc11` |
 | Migrações de schema | Flyway (`flyway-core` + `flyway-database-oracle`) | 11.8.2 |
 | Autenticação | JWT — `jjwt-api`/`jjwt-impl`/`jjwt-jackson` | 0.12.6 |
 | Rate limiting | Bucket4j | 8.10.1 |
@@ -201,7 +199,7 @@ flowchart TD
         Model["Entidades: Usuario, FichaTecnica,<br/>HistoricoConsulta, AuditLog, Config,<br/>RefreshTokenUsado"]
     end
 
-    DB[("Oracle 19c — prod<br/>H2 em memória — perfil dev-h2")]
+    DB[("H2 em memória — dev<br/>Oracle 19c — prod")]
     Gemini[["Google Gemini API<br/>(externo)"]]
 
     Client -->|"HTTPS/TLS 1.2+ em prod<br/>HTTP em dev"| RLF
@@ -277,7 +275,7 @@ Como complemento ao diagrama Mermaid acima — a mesma arquitetura, vista como p
 │ Repositories (Spring Data JPA)  ->  Entidades JPA                    │
 ├──────────────────────────────────────────────────────────────────────┤
 │ BANCO DE DADOS                                                       │
-│ Oracle 19c (prod)              H2 em memória (perfil dev-h2)         │
+│ H2 em memória (dev)                                 Oracle 19c (prod)│
 └──────────────────────────────────────────────────────────────────────┘
                                    │
                                    │ LlmClient - só em cache miss/parcial/expirado
@@ -392,8 +390,7 @@ sprint-ford-api/
 │
 ├── src/main/resources/
 │   ├── application.properties                 # config base — JWT, rate limit, upload, CORS, Swagger
-│   ├── application-dev.properties             # perfil dev — Oracle, HTTP, SSL desabilitado
-│   ├── application-dev-h2.properties          # perfil dev-h2 — H2 em memória + Console
+│   ├── application-dev.properties             # perfil dev — H2 em memória + Console, HTTP, SSL desabilitado
 │   ├── application-prod.properties            # perfil prod — Oracle, HTTPS, Swagger desabilitado
 │   ├── logback-spring.xml                     # logs — console legível em dev, JSON estruturado em prod
 │   │                                           # (ver Trilha de auditoria, em Segurança)
@@ -403,7 +400,7 @@ sprint-ford-api/
 │
 ├── src/test/java/com/icers/ford/
 │   ├── SuiteDeTestesGeral.java                 # @Suite + @SelectPackages — agrupa todos os pacotes de teste
-│   ├── SprintFordApiApplicationTests.java      # smoke test (@SpringBootTest), fixado em @ActiveProfiles("dev-h2")
+│   ├── SprintFordApiApplicationTests.java      # smoke test (@SpringBootTest), fixado em @ActiveProfiles("dev")
 │   ├── service/
 │   │   ├── SpecServiceTest.java                # 32 testes
 │   │   ├── UsuarioServiceTest.java             # 19 testes
@@ -462,7 +459,7 @@ Usando `POST /specs/query` como exemplo, do primeiro byte recebido até a respos
 
 - **JDK 21**
 - **Maven** — o projeto já traz o wrapper (`mvnw`/`mvnw.cmd`), então uma instalação própria do Maven não é obrigatória
-- Acesso a uma instância **Oracle** (schema FIAP do aluno) — necessário para os perfis `dev` e `prod`; **não é necessário** para o perfil `dev-h2` (ver abaixo)
+- Acesso a uma instância **Oracle** (schema FIAP do aluno) — necessário só para o perfil `prod`; o `dev` roda com H2 em memória, sem credencial nenhuma
 - Uma chave de API do **Google Gemini** válida, com cota disponível (Google AI Studio)
 
 ### Variáveis de ambiente
@@ -470,6 +467,8 @@ Usando `POST /specs/query` como exemplo, do primeiro byte recebido até a respos
 Copie `.env.example` para `.env` e preencha (o arquivo `.env` nunca deve ser commitado — já está no `.gitignore`):
 
 ```env
+# Só usadas no perfil prod (Oracle real da FIAP) — dev roda com H2 em
+# memória, sem precisar de nenhuma das três.
 ORACLE_URL=jdbc:oracle:thin:@oracle.fiap.com.br:1521:orcl
 ORACLE_USER=seu_rm_aqui
 ORACLE_PASSWORD=sua_senha_aqui
@@ -504,34 +503,21 @@ Todas as chaves simétricas (`JWT_SECRET`, `AES_SECRET_KEY`, `PSEUDONYMIZATION_S
 
 | Perfil | Banco | Protocolo | Quando usar |
 |---|---|---|---|
-| `dev` (padrão) | Oracle (schema FIAP) | HTTP, porta 8080 | Desenvolvimento com o Oracle da FIAP disponível |
-| `dev-h2` | H2 em memória | HTTP, porta 8080 | Desenvolvimento sem acesso ao Oracle da FIAP — banco descartável, recriado a cada boot |
+| `dev` (padrão) | H2 em memória | HTTP, porta 8080 | Desenvolvimento — banco descartável, recriado a cada boot, sem depender do Oracle da FIAP |
 | `prod` | Oracle (schema FIAP) | HTTPS, porta 8443 | Execução com TLS habilitado |
 
 **Importante:** o perfil ativo é controlado **exclusivamente** por uma variável de ambiente real (do sistema operacional ou da run configuration da IDE) — `SPRING_PROFILES_ACTIVE`. Não existe nenhuma variável de perfil dentro do `.env`; isso é intencional (ver [Armadilhas conhecidas de configuração](#armadilhas-conhecidas-de-configuração) abaixo). Sem essa variável definida, o padrão do `application.properties` (`spring.profiles.active=dev`) vale normalmente.
 
-### Subindo em dev (Oracle)
+### Subindo em dev (H2)
 
-1. Garanta que o schema Oracle está acessível (o valor default de `spring.jpa.properties.hibernate.default_schema` é `RM558540` — ajuste se o seu RM for outro).
-2. Rode a aplicação — nenhuma variável de perfil extra é necessária, `dev` já é o padrão:
+1. Rode a aplicação — nenhuma variável de perfil extra é necessária, `dev` já é o padrão, e não precisa de credencial de banco nenhuma:
    ```bash
    ./mvnw spring-boot:run
    ```
-3. O Flyway aplica as migrations `V1` a `V9` automaticamente na inicialização.
-4. Acesse a documentação interativa em `http://localhost:8080/swagger-ui.html`.
-
-### Subindo em dev-h2 (H2 em memória)
-
-Alternativa para quem não tem acesso ao Oracle da FIAP — útil, por exemplo, para outro integrante do grupo testar localmente sem credenciais próprias.
-
-1. Defina a variável de ambiente real `SPRING_PROFILES_ACTIVE=dev-h2` (nunca no `.env`):
-   ```bash
-   SPRING_PROFILES_ACTIVE=dev-h2 ./mvnw spring-boot:run
-   ```
-   Na IntelliJ: na run configuration, aba **Environment variables** → `SPRING_PROFILES_ACTIVE=dev-h2`.
-2. As mesmas 9 migrations Flyway rodam do zero contra o H2, recriando inclusive os usuários semeados pela `V5`.
-3. Acesse o **H2 Console** em `http://localhost:8080/h2-console` — JDBC URL `jdbc:h2:mem:specradar`, usuário `sa`, senha em branco.
-4. O banco é descartável: reiniciar a aplicação zera todos os dados (`DB_CLOSE_DELAY=-1` só mantém o banco vivo **enquanto** a aplicação estiver de pé).
+2. O Flyway aplica as migrations `V1` a `V9` do zero a cada boot, recriando inclusive os usuários semeados pela `V5`.
+3. Acesse a documentação interativa em `http://localhost:8080/swagger-ui.html`.
+4. Acesse o **H2 Console** em `http://localhost:8080/h2-console` — JDBC URL `jdbc:h2:mem:specradar`, usuário `sa`, senha em branco.
+5. O banco é descartável: reiniciar a aplicação zera todos os dados (`DB_CLOSE_DELAY=-1` só mantém o banco vivo **enquanto** a aplicação estiver de pé).
 
 ### Subindo em prod (HTTPS + Oracle)
 
@@ -562,26 +548,9 @@ keytool -genkeypair \
 
 O comando pede a senha do keystore interativamente — use a mesma que for preenchida em `SSL_KEYSTORE_PASSWORD` no `.env`. `-validity 365` e o `-dname` são livres para ajustar; os parâmetros que **precisam** bater com a configuração do projeto são o algoritmo (`RSA`/2048/`SHA384withRSA`), o tipo (`PKCS12`), o caminho do arquivo e o alias.
 
-### Resetando o banco do zero
-
-Para um ambiente limpo (útil durante o desenvolvimento contra o Oracle), derrube as tabelas e o controle do Flyway antes de reiniciar:
-
-```sql
-DROP TABLE sr_audit_logs PURGE;
-DROP TABLE sr_historico_consultas PURGE;
-DROP TABLE sr_fichas_tecnicas PURGE;
-DROP TABLE sr_config PURGE;
-DROP TABLE sr_refresh_tokens_usados PURGE;
-DROP TABLE sr_usuarios PURGE;
-
-DROP TABLE "flyway_schema_history_llm" PURGE;
-```
-
-(O nome da tabela de controle do Flyway é `flyway_schema_history_llm`, não o padrão `flyway_schema_history` — configurado explicitamente via `spring.flyway.table`, para não colidir com o de outros projetos que eventualmente dividam o mesmo schema Oracle.) Esse reset não é necessário no perfil `dev-h2` — o banco em memória já nasce vazio a cada reinício.
-
 ### Armadilhas conhecidas de configuração
 
-**O perfil ativo não pode ser controlado pelo `.env`.** A biblioteca que lê o `.env` (`springboot3-dotenv`) roda como o `EnvironmentPostProcessor` de **menor prioridade** do Spring Boot — ou seja, ela só injeta os valores do `.env` *depois* que o Spring já decidiu, com base nas variáveis de ambiente reais do sistema, qual `application-{perfil}.properties` carregar. Colocar uma variável de perfil só no `.env` engana apenas o `Environment` quando consultado depois (inclusive o banner de inicialização), mas nunca a decisão real de bootstrap — o perfil efetivamente aplicado continua sendo `dev`. Para rodar de fato em `prod` (ou `dev-h2`), a variável precisa existir como **variável de ambiente real** — do sistema operacional ou da run configuration da IDE — nunca só no `.env`.
+**O perfil ativo não pode ser controlado pelo `.env`.** A biblioteca que lê o `.env` (`springboot3-dotenv`) roda como o `EnvironmentPostProcessor` de **menor prioridade** do Spring Boot — ou seja, ela só injeta os valores do `.env` *depois* que o Spring já decidiu, com base nas variáveis de ambiente reais do sistema, qual `application-{perfil}.properties` carregar. Colocar uma variável de perfil só no `.env` engana apenas o `Environment` quando consultado depois (inclusive o banner de inicialização), mas nunca a decisão real de bootstrap — o perfil efetivamente aplicado continua sendo `dev`. Para rodar de fato em `prod`, a variável precisa existir como **variável de ambiente real** — do sistema operacional ou da run configuration da IDE — nunca só no `.env`.
 
 **Qualquer variável no `.env` tem prioridade *maior* que `application-{perfil}.properties`.** Isso é *relaxed binding* padrão do Spring Boot — por exemplo, uma variável `SERVER_PORT` no `.env` casaria com a property `server.port` e sobrescreveria silenciosamente o que o perfil ativo tentou definir. É por isso que `server.port` neste projeto é um valor fixo dentro de cada `application-{perfil}.properties` (`8080` no base/dev, `8443` só em `application-prod.properties`), nunca uma variável `${SERVER_PORT:...}` no `application.properties` — nenhuma propriedade que precisa variar por perfil (porta, SSL) pode depender de uma variável de `.env`, ou o `.env` vence silenciosamente.
 
@@ -696,7 +665,7 @@ Um índice único case-insensitive sobre `sr_fichas_tecnicas(marca, modelo, vers
 
 ### Portabilidade Oracle/H2
 
-O schema roda, sem modificação nenhuma, tanto contra o Oracle de produção quanto contra o H2 em memória do perfil `dev-h2` — o que exigiu três ajustes deliberados nas migrations, todos escritos em sintaxe ANSI SQL suportada nativamente pelos dois bancos:
+O schema roda, sem modificação nenhuma, tanto contra o H2 em memória do `dev` quanto contra o Oracle de `prod` — o que exigiu três ajustes deliberados nas migrations, todos escritos em sintaxe ANSI SQL suportada nativamente pelos dois bancos:
 
 **Geração de chave primária via `IDENTITY`, não sequence manual.** Todas as 5 tabelas com chave surrogate usam `NUMBER GENERATED BY DEFAULT AS IDENTITY` — sintaxe ANSI, suportada por Oracle 12c+ e H2 sem nenhuma reescrita — em vez de uma sequence Oracle-específica (`sequence.NEXTVAL`) combinada com um bloco PL/SQL defensivo de criação, que o H2 não suporta. Nas entidades JPA correspondentes, isso é `@GeneratedValue(strategy = GenerationType.IDENTITY)`. `sr_refresh_tokens_usados` é a exceção — usa `jti` como chave natural, não precisa de geração de id nenhuma.
 
@@ -963,7 +932,7 @@ Toda resposta de erro da API segue a mesma estrutura, nunca expondo stack trace,
 
 ### Documentação interativa (Swagger)
 
-Com a aplicação rodando em `dev` ou `dev-h2`, a documentação completa — as 18 operações, com exemplos reais de request/response para login, consulta, chat e cada código de erro (`400`, `404`, `429`, `503`) — fica disponível em `http://localhost:8080/swagger-ui.html`. Para testar endpoints protegidos, faça login em `/auth/login`, copie o `access_token`, clique em **Authorize** (cadeado) no Swagger UI e cole o token.
+Com a aplicação rodando em `dev`, a documentação completa — as 18 operações, com exemplos reais de request/response para login, consulta, chat e cada código de erro (`400`, `404`, `429`, `503`) — fica disponível em `http://localhost:8080/swagger-ui.html`. Para testar endpoints protegidos, faça login em `/auth/login`, copie o `access_token`, clique em **Authorize** (cadeado) no Swagger UI e cole o token.
 
 Em `prod`, o Swagger e o `/v3/api-docs` ficam **desabilitados por padrão** (`springdoc.swagger-ui.enabled=false`) — reduz a superfície exposta num ambiente que se pretende mais próximo de produção real; a documentação usada nesse caso é este próprio README.
 
@@ -1435,7 +1404,7 @@ Toda resposta de erro segue o mesmo formato (ver [Formato padrão de erro](#form
 
 Duas camadas de registro, para dois propósitos diferentes. **Histórico funcional** (`sr_historico_consultas`): toda consulta de especificações é registrada com usuário, veículo, atributos pedidos, se foi cache hit e o tempo de resposta — é rastreabilidade de uso, não segurança por si só. **Auditoria de segurança** (`sr_audit_logs`, via `AuditService`): login bem/malsucedido (com detecção de força bruta por IP — ver [Bloqueio por força bruta](#bloqueio-por-força-bruta)), rate limit excedido, e toda ação administrativa de escrita.
 
-A trilha em banco (`sr_audit_logs`) não é a única camada de log estruturado do projeto — `logback-spring.xml` configura a saída de log de forma diferente por perfil. Em `dev`/`dev-h2`, console legível colorido, para depuração local. Em `prod`, dois appenders JSON separados: um geral (`logs/specradar.log`, todo log de `INFO` para cima, rotação diária com 30 dias de retenção) e um dedicado só a segurança (`logs/security.log`, filtrado para `WARN` e acima, 90 dias de retenção) — que recebe especificamente os avisos do Spring Security e tudo que `AuditService` loga. Separar esse segundo arquivo facilita auditoria e monitoramento externo (SIEM, alerta) sem precisar filtrar o volume de log geral da aplicação; o formato JSON em `prod` existe justamente para ser consumido por uma ferramenta de agregação de log, não para leitura humana direta como em `dev`.
+A trilha em banco (`sr_audit_logs`) não é a única camada de log estruturado do projeto — `logback-spring.xml` configura a saída de log de forma diferente por perfil. Em `dev`, console legível colorido, para depuração local. Em `prod`, dois appenders JSON separados: um geral (`logs/specradar.log`, todo log de `INFO` para cima, rotação diária com 30 dias de retenção) e um dedicado só a segurança (`logs/security.log`, filtrado para `WARN` e acima, 90 dias de retenção) — que recebe especificamente os avisos do Spring Security e tudo que `AuditService` loga. Separar esse segundo arquivo facilita auditoria e monitoramento externo (SIEM, alerta) sem precisar filtrar o volume de log geral da aplicação; o formato JSON em `prod` existe justamente para ser consumido por uma ferramenta de agregação de log, não para leitura humana direta como em `dev`.
 
 ```java
 // service/AuditService.java
@@ -1500,12 +1469,12 @@ private void salvar(String usuarioHash, String endpoint, String metodo,
 public class SuiteDeTestesGeral { }
 ```
 
-Todos os `repository` são mockados via Mockito — **nenhum teste toca o Oracle real da FIAP**. O único teste que sobe um `ApplicationContext` de verdade é `SprintFordApiApplicationTests` (o smoke test padrão do Spring Initializr, `@SpringBootTest`), explicitamente fixado no perfil `dev-h2` para nunca apontar para o Oracle por padrão:
+Todos os `repository` são mockados via Mockito — **nenhum teste toca o Oracle real da FIAP**. O único teste que sobe um `ApplicationContext` de verdade é `SprintFordApiApplicationTests` (o smoke test padrão do Spring Initializr, `@SpringBootTest`), explicitamente fixado no perfil `dev` (H2 em memória) para nunca apontar para o Oracle por padrão:
 
 ```java
 // SprintFordApiApplicationTests.java
 @SpringBootTest
-@ActiveProfiles("dev-h2")
+@ActiveProfiles("dev")
 class SprintFordApiApplicationTests {
     @Test void contextLoads() {}
 }
@@ -1546,7 +1515,6 @@ Decisões de maior peso que exigiram trade-off explícito ao longo do desenvolvi
 - **`SpecResponse` expõe o `id` da ficha técnica** — mudança aditiva no contrato de resposta, necessária para que `DELETE /specs/{id}` seja utilizável: sem o `id` na resposta de uma consulta, não haveria como saber qual ficha remover sem acesso direto ao banco.
 - **O mesmo padrão `saveAndFlush` que evita a corrida de concorrência no cache de fichas técnicas também é usado em `UsuarioService.criar()`/`atualizar()`**, pelo mesmo motivo: `save()` sozinho só aloca o ID, o `INSERT`/`UPDATE` real fica pendente para o flush/commit, tarde demais para um `catch(DataIntegrityViolationException)` no método capturar (ver [Estratégia cache-primeiro](#estratégia-cache-primeiro)).
 - **`IpResolver` e `UsuarioResolver` existem como componentes compartilhados (`util/`)** porque a lógica que centralizam — resolver o IP real do cliente, resolver o `Usuario` autenticado a partir do `UserDetails` — antes se repetia em múltiplos controllers e filtros. Extrair para um componente único elimina o risco de um desses pontos duplicados divergir do resto (por exemplo, um controller novo esquecendo de aplicar a mesma lógica de `X-Forwarded-For`).
-- **Perfil `dev` continua apontando para o Oracle da FIAP por enquanto; `dev-h2` é uma opção adicional, não uma substituição.** A troca completa — `dev` virar H2, como já é o caso do perfil `dev-h2` — fica planejada para quando o projeto estiver mais estável; hoje trocar o padrão introduziria risco desnecessário numa rotina de teste que já depende do Oracle.
 - **`vencedor` do `/compare` só compara `potencia`, `torque`, `aceleracao`, `preco` e `consumo`** — os demais campos são descritivos ou multivalorados, e uma comparação numérica forçada neles produziria um resultado arbitrário (ver [Comparação entre veículos](#comparação-entre-veículos)).
 - **O cache sempre busca pelo menos o conjunto de atributos padrão na primeira consulta de um veículo**, mesmo que o usuário tenha pedido menos — evita que uma pergunta estreita deixe o cache incompleto para consultas futuras mais amplas do mesmo veículo (ver [Estratégia cache-primeiro](#estratégia-cache-primeiro)).
 - **`X-Forwarded-For` só é confiado com uma lista explícita de proxies confiáveis, vazia por padrão** — sem proxy reverso real na frente hoje, a postura segura é nunca confiar no header, só habilitando por IP explicitamente cadastrado se/quando isso mudar (ver [Rate limiting](#rate-limiting)).

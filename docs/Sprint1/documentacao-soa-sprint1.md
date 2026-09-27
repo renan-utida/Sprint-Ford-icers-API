@@ -120,7 +120,7 @@ flowchart TD
         Model["Entidades: Usuario, FichaTecnica,<br/>HistoricoConsulta, AuditLog, Config,<br/>RefreshTokenUsado"]
     end
 
-    DB[("Oracle 19c — prod<br/>H2 em memória — perfil dev-h2")]
+    DB[("H2 em memória — dev<br/>Oracle 19c — prod")]
     Gemini[["Google Gemini API<br/>(externo)"]]
 
     Client -->|"HTTPS/TLS 1.2+ em prod<br/>HTTP em dev"| RLF
@@ -307,11 +307,11 @@ public ResponseEntity<ErrorResponse> handleJsonInvalido(...) {
 ## 4. Conexão com banco de dados (15%)
 
 **Dependências e configurações de conexão (8%).** Datasource configurado por
-perfil Spring — `application-prod.properties` aponta para Oracle 19c (URL,
-usuário e senha via variáveis de ambiente, nunca hardcoded, com pool HikariCP
-dimensionado para produção: `maximum-pool-size=20`); um perfil adicional
-`dev-h2` sobe H2 em memória, com dialeto e schema sobrescritos, para
-desenvolvimento sem depender do Oracle da FIAP.
+perfil Spring — `application-dev.properties` sobe H2 em memória (dialeto e
+schema sobrescritos), sem depender do Oracle da FIAP para desenvolvimento;
+`application-prod.properties` aponta para o Oracle 19c real (URL, usuário e
+senha via variáveis de ambiente, nunca hardcoded, com pool HikariCP
+dimensionado para produção: `maximum-pool-size=20`).
 
 **Controle de migrações (7%).** Flyway com 9 migrations versionadas e
 imutáveis, cobrindo desde a criação das tabelas até evoluções incrementais de
@@ -343,5 +343,5 @@ em vez de deixar a divergência passar despercebida.
 | Integração por Web Services | 50% | Diagrama de arquitetura, 18 operações REST/JSON em 17 rotas distintas, verbos HTTP semânticos, Swagger customizado | ✅ |
 | Arquitetura Orientada a Serviços | 20% | Services independentes com reuso real (`ChatService`→`SpecService`, `resolverComCache`), separação controller/service/repository | ✅ |
 | Padrões e Boas Práticas | 15% | REST/JSON consistente, `GlobalExceptionHandler` com 15 exceções mapeadas | ✅ |
-| Conexão com banco de dados | 15% | Datasource por perfil (Oracle prod / H2 dev-h2), 9 migrations Flyway versionadas | ✅ |
+| Conexão com banco de dados | 15% | Datasource por perfil (H2 dev / Oracle prod), 9 migrations Flyway versionadas | ✅ |
 | **Total** | **100%** | | **✅** |

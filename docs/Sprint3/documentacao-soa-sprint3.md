@@ -53,8 +53,8 @@ modelo de Richardson, e evidência de execução de testes automatizados.
 | Segurança | Spring Security | 6.x |
 | Autenticação | JWT (`jjwt`) | 0.12.6 |
 | Persistência | Spring Data JPA | — |
-| Banco de dados (produção) | Oracle | 19c |
-| Banco de dados (perfil `dev-h2`) | H2 em memória | — |
+| Banco de dados (dev) | H2 em memória | — |
+| Banco de dados (prod) | Oracle | 19c |
 
 ## Critérios de avaliação exigidos
 
@@ -572,7 +572,7 @@ de fato retornar, cada um com sua própria descrição). Exemplo real de
 Esse padrão se repete nos 18 métodos de endpoint dos quatro controllers —
 156 anotações `@Operation`/`@Tag`/`@ApiResponse`/`@Schema` ao todo,
 confirmadas por busca direta no código-fonte. Com a aplicação rodando em
-`dev` ou `dev-h2`, a UI fica disponível em `http://localhost:8080/swagger-ui.html`,
+`dev`, a UI fica disponível em `http://localhost:8080/swagger-ui.html`,
 com as 18 operações documentadas. Em `prod`, o Swagger é **desabilitado por
 padrão** (`springdoc.swagger-ui.enabled=false`) — reduz a superfície exposta
 num ambiente que se pretende mais próximo de produção real; a documentação
@@ -624,11 +624,11 @@ consistente, não só coincidentemente igual entre os endpoints:
 
 Além da documentação viva do Swagger, o `README.md` na raiz do repositório
 cobre o que uma especificação OpenAPI não cobre — como colocar o projeto
-pra rodar do zero: pré-requisitos, variáveis de ambiente (`.env`), os três
-perfis disponíveis (`dev` com Oracle, `dev-h2` com H2 em memória para quem
-não tem acesso ao Oracle da FIAP, `prod` com HTTPS/TLS), como gerar o
-certificado SSL auto-assinado, como resetar o banco do zero, e uma seção de
-armadilhas conhecidas de configuração (ex.: por que uma variável no `.env`
+pra rodar do zero: pré-requisitos, variáveis de ambiente (`.env`), os dois
+perfis disponíveis (`dev` com H2 em memória, sem nenhuma credencial de
+banco necessária, `prod` com Oracle real da FIAP + HTTPS/TLS), como gerar
+o certificado SSL auto-assinado, e uma seção de armadilhas conhecidas de
+configuração (ex.: por que uma variável no `.env`
 sempre vence o valor definido em `application-{perfil}.properties`). O
 mesmo README também documenta, em prosa, cada decisão de arquitetura e
 segurança já cobertas nos Critérios 1 a 5 deste documento — os dois nunca
