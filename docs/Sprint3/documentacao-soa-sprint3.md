@@ -31,6 +31,7 @@
 - [5. Testes Automatizados (15%)](#5-testes-automatizados-15)
 - [6. Documentação e Tratamento de Erros (10%)](#6-documentação-e-tratamento-de-erros-10)
 - [Tabela-resumo de cobertura](#tabela-resumo-de-cobertura)
+- [Referências](#referências)
 
 ---
 
@@ -235,8 +236,9 @@ contas válidas a um possível atacante.
 
 ## 3. JWT (15%)
 
-**Pedido:** geração e validação de JWT; proteção dos recursos utilizando
-token; expiração e uso adequado das informações do token.
+**Pedido:** geração e validação de
+[JWT](https://www.rfc-editor.org/rfc/rfc7519); proteção dos recursos
+utilizando token; expiração e uso adequado das informações do token.
 
 ### Geração e validação
 
@@ -314,7 +316,8 @@ depois de já ter sido trocado por um novo.
 
 ## 4. Maturidade REST — Nível 2 (20%)
 
-O SpecRadar é avaliado aqui contra o **Modelo de Maturidade de Richardson**,
+O SpecRadar é avaliado aqui contra o
+[**Modelo de Maturidade de Richardson**](https://martinfowler.com/articles/richardsonMaturityModel.html),
 a régua mais usada para medir o quão "RESTful" uma API realmente é:
 
 | Nível | Característica | O SpecRadar atende? |
@@ -520,7 +523,7 @@ projetado, não falhas de teste).
 
 ## 6. Documentação e Tratamento de Erros (10%)
 
-### Documentação interativa (Swagger/OpenAPI)
+### Documentação interativa (Swagger/[OpenAPI](https://spec.openapis.org/oas/v3.1.0))
 
 O projeto usa `springdoc-openapi` (versão 2.8.9) para gerar documentação
 OpenAPI 3 automaticamente a partir do próprio código — não é um documento
@@ -651,3 +654,19 @@ arquitetura efetivamente implementada, contagens de teste e de anotações
 conferidas diretamente nos arquivos-fonte (não estimadas), e um print real
 da execução da suíte de testes e da página do Swagger, não uma descrição
 do que se pretende fazer.
+
+---
+
+## Referências
+
+### Modelo de Maturidade REST (Critério 4)
+
+- [Richardson Maturity Model (Martin Fowler)](https://martinfowler.com/articles/richardsonMaturityModel.html)
+
+### JWT (Critério 3)
+
+- [RFC 7519 — JSON Web Token (JWT)](https://www.rfc-editor.org/rfc/rfc7519)
+
+### OpenAPI (Critério 6)
+
+- [OpenAPI Specification v3.1.0](https://spec.openapis.org/oas/v3.1.0)

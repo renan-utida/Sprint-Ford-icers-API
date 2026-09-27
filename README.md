@@ -109,8 +109,10 @@ Com o SpecRadar, o tempo de consulta de especificações de um veículo concorre
 
 Cada disciplina tem um documento técnico dedicado, com evidência extraída diretamente do código-fonte real do projeto — requisitos formais exigidos, o que foi implementado para atendê-los, e como isso pode ser conferido:
 
-- 🔒 **[Cybersecurity — Segurança da API](docs/Sprint1/documentacao-cyber-sprint1.md)**
-- 🏛 **[Arquitetura Orientada a Serviços (SOA)](docs/Sprint1/documentacao-soa-sprint1.md)**
+- 🔒 **[Cybersecurity — Segurança da API (Sprint 1)](docs/Sprint1/documentacao-cyber-sprint1.md)**
+- 🏛 **[Arquitetura Orientada a Serviços — SOA (Sprint 1)](docs/Sprint1/documentacao-soa-sprint1.md)**
+- 🔒 **[Cybersecurity — DevSecOps e Pesquisa de Vulnerabilidades (Sprint 3)](docs/Sprint3/documentacao-cyber-sprint3.md)**
+- 🏛 **[Arquitetura Orientada a Serviços — SOA (Sprint 3)](docs/Sprint3/documentacao-soa-sprint3.md)**
 
 ---
 
@@ -1583,7 +1585,9 @@ Decisões de maior peso que exigiram trade-off explícito ao longo do desenvolvi
 
 ## Documentação por disciplina (Cybersecurity e SOA)
 
-- 🔒 **[Cybersecurity — Segurança da API](docs/Sprint1/documentacao-cyber-sprint1.md)**
-- 🏛 **[Arquitetura Orientada a Serviços (SOA)](docs/Sprint1/documentacao-soa-sprint1.md)**
+- 🔒 **[Cybersecurity — Segurança da API (Sprint 1)](docs/Sprint1/documentacao-cyber-sprint1.md)**
+- 🏛 **[Arquitetura Orientada a Serviços — SOA (Sprint 1)](docs/Sprint1/documentacao-soa-sprint1.md)**
+- 🔒 **[Cybersecurity — DevSecOps e Pesquisa de Vulnerabilidades (Sprint 3)](docs/Sprint3/documentacao-cyber-sprint3.md)**
+- 🏛 **[Arquitetura Orientada a Serviços — SOA (Sprint 3)](docs/Sprint3/documentacao-soa-sprint3.md)**
 
 **[⬆ Voltar ao topo](#specradar)**

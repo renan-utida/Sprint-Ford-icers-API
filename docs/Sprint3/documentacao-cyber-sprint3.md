@@ -30,6 +30,7 @@
 - [3. Logs, Alertas e Resposta a Incidentes](#3-logs-alertas-e-resposta-a-incidentes)
 - [4. Pesquisa de Vulnerabilidades (OWASP Top 10 e API)](#4-pesquisa-de-vulnerabilidades-owasp-top-10-e-api)
 - [Tabela-resumo de cobertura](#tabela-resumo-de-cobertura)
+- [Referências](#referências)
 
 ---
 
@@ -233,8 +234,9 @@ problema independente de qualquer código que o time escreveu.
 
 **Container Security** analisa a imagem de container de uma aplicação
 (camadas do SO base, pacotes instalados, configuração) em busca de
-vulnerabilidades e más práticas — ferramenta típica: **Trivy** (open-source,
-escaneia tanto a imagem final quanto o `Dockerfile` que a gera). **Não é
+vulnerabilidades e más práticas — ferramenta típica:
+[**Trivy**](https://github.com/aquasecurity/trivy) (open-source, escaneia
+tanto a imagem final quanto o `Dockerfile` que a gera). **Não é
 aplicável ao SpecRadar hoje** — o projeto não tem `Dockerfile` nem processo
 de containerização (roda direto via `mvn spring-boot:run` ou o `.jar`
 empacotado, conforme documentado no `README.md` principal). Se o projeto
@@ -541,7 +543,7 @@ O que já existe (coluna "Hoje") é 100% real, verificável no código e nos
 logs reais gerados por teste. A coluna "Produção" é proposta — nenhuma
 dessas ferramentas de agregação/alerta está implementada ou simulada aqui.
 
-### 3.3 Fluxo de resposta a incidentes (SANS PICERL)
+### 3.3 Fluxo de resposta a incidentes ([SANS PICERL](https://sans.org/white-papers/33901))
 
 **Cenário: força bruta de login.** Escolhido porque os mecanismos de
 detecção e contenção já existem de verdade no código — o fluxo abaixo
@@ -584,10 +586,10 @@ outros estão atuais seria inconsistente:
 
 | Padrão | Versão usada | Confirmada em |
 |---|---|---|
-| OWASP Top 10 | **2025** | `top10.owasp.org/2025` |
-| OWASP API Security Top 10 | **2023** (ainda a mais atual) | `api-security.owasp.org` |
-| OWASP Mobile Top 10 | **2024** | `owasp.org/www-project-mobile-top-10` |
-| OWASP ASVS | **5.0** (mai/2025) | busca direta, 345 requisitos em 17 capítulos |
+| OWASP Top 10 | **2025** | [top10.owasp.org/2025](https://top10.owasp.org/2025) |
+| OWASP API Security Top 10 | **2023** (ainda a mais atual) | [api-security.owasp.org](https://api-security.owasp.org/) |
+| OWASP Mobile Top 10 | **2024** | [owasp.org/www-project-mobile-top-10](https://owasp.org/www-project-mobile-top-10/) |
+| OWASP ASVS | **5.0** (mai/2025) | [github.com/OWASP/ASVS](https://github.com/OWASP/ASVS) — 345 requisitos em 17 capítulos |
 
 ### 4.1 OWASP Top 10:2025
 
@@ -726,3 +728,39 @@ Security, ASVS Nível 2) ou está fora do controle direto deste chat (código
 mobile completo), isso está registrado explicitamente como lacuna ou
 limitação de escopo, não escondido atrás de uma alegação de cobertura que
 não existe.
+
+---
+
+## Referências
+
+### OWASP Top 10
+
+- [OWASP Top 10:2025](https://top10.owasp.org/2025)
+- [A10:2025 — Mishandling of Exceptional Conditions](https://top10.owasp.org/2025/A10_2025-Mishandling_of_Exceptional_Conditions/)
+
+### OWASP API Security Top 10
+
+- [OWASP API Security Top 10:2023](https://api-security.owasp.org/)
+
+### OWASP Mobile Top 10
+
+- [OWASP Mobile Top 10](https://owasp.org/www-project-mobile-top-10/)
+
+### OWASP ASVS
+
+- [OWASP Application Security Verification Standard (ASVS)](https://owasp.github.io/www-project-application-security-verification-standard/)
+- [OWASP/ASVS — Repositório oficial (versão 5.0.0)](https://github.com/OWASP/ASVS)
+
+### SANS PICERL
+
+- [Incident Handler's Handbook (Patrick Kral, SANS Institute)](https://sans.org/white-papers/33901)
+
+### Ferramentas de segurança
+
+- [Semgrep — Documentação oficial](https://docs.semgrep.dev/)
+- [TruffleHog — Repositório oficial](https://github.com/trufflesecurity/trufflehog)
+- [Trivy — Repositório oficial](https://github.com/aquasecurity/trivy)
+
+### Repositório mobile do projeto
+
+- [Sprint_Mobile](https://github.com/dallaisa/Sprint_Mobile)
