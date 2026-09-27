@@ -1,0 +1,29 @@
+%%{init: {'flowchart': {'nodeSpacing': 40, 'rankSpacing': 55}}}%%
+flowchart TD
+    Commit["Commit / Push"]
+    PR["Pull Request"]
+
+    Commit --> PR
+    PR --> Build
+
+    subgraph CI["Pipeline CI/CD — proposto (GitHub Actions ou equivalente)"]
+        Build["Build e compilação<br/>mvn compile"]
+        SAST["SAST — Semgrep<br/>(real, já executado)"]
+        Secrets["Secret Scanning — Trufflehog<br/>(real, já executado)"]
+        SCA["SCA — ex.: OWASP Dependency-Check<br/>(pesquisa orientada, não implementado)"]
+        Container["Container Security — ex.: Trivy<br/>(não aplicável — projeto não tem Dockerfile hoje)"]
+        Tests["Testes automatizados<br/>172 testes (real)"]
+
+        Build --> SAST --> Secrets --> SCA --> Container --> Tests
+    end
+
+    Tests --> Gate{"Todos os gates<br/>passam?"}
+    Gate -->|Sim| Merge["Merge em main"]
+    Gate -->|Não| Block["Bloqueia o merge"]
+    Merge --> Deploy["Deploy"]
+
+    classDef real fill:#d4edda,stroke:#28a745,color:#155724,stroke-width:2px;
+    classDef proposto fill:#f0f0f0,stroke:#999999,color:#555555,stroke-dasharray: 5 5;
+
+    class SAST,Secrets,Tests real;
+    class SCA,Container proposto;
